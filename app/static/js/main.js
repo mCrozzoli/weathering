@@ -2,7 +2,7 @@
 // the 12-hour runs and the drawing together.
 
 import { parseLine, formatPose, CHANNELS, CHANNEL_INFO, SERVOS } from "./protocol.js";
-import { runPipeline, labelHours, dueRun, nextRun, ALGORITHMS, ALGORITHM_IDS } from "./pipeline.js";
+import { runPipeline, labelHours, dueRun, nextRun, soundContext, ALGORITHMS, ALGORITHM_IDS } from "./pipeline.js";
 import { drawTwin } from "./twin.js";
 import { LocalBackend, SerialBackend, DemoBackend } from "./backends.js";
 import { exportFiles } from "./store.js";
@@ -84,6 +84,7 @@ function handleLine(line, replay = false) {
     case "node": S.nodes[ev.role] = { seen: Date.now(), fw: ev.fw }; renderStatus(); break;
     case "lost": if (S.nodes[ev.role]) S.nodes[ev.role].seen = 0; renderStatus(); break;
     case "boot": S.nodes.hub = { seen: Date.now(), fw: ev.fw }; renderStatus(); break;
+    case "log": if (ev.text.startsWith("(sound) ")) { S.sound = ev.text.slice(8).trim(); renderStatus(); } break;
     // a newer pose NAKs the one still in flight: only the current one matters
     case "nak": if (!replay && ev.seq === S.seq) toast("The sculpture didn't answer (power? range?)"); break;
     case "err": if (!replay) console.warn("hub:", ev.reason); break;
@@ -126,6 +127,7 @@ async function doRun(at, manual) {
     const run = runPipeline(S.readings, at, prev, { showDays: S.meta.show_days, driving: S.meta.driving });
     run.run = (prev?.run || 0) + 1;
     if (manual) run.manual = true;
+    run.context = soundContext(run, labelHours(S.readings, run));
     S.runs.push(run);
     await S.backend.addRun(run);
     sendPose(run.sent);
@@ -272,6 +274,7 @@ function renderStatus() {
     return `<span title="${role === "sensor" ? "sensor box" : "sculpture"}"><span class="dot ${ok ? "ok" : ""}"></span>${role === "sensor" ? "sensor" : "sculpture"}</span>`;
   }).join(" ");
   $("connectBtn").textContent = S.connected && b?.kind !== "demo" ? "Connected" : "Connect";
+  if (b?.kind === "local" && S.sound) $("soundState").textContent = { ready: "sound on", starting: "sound starting…", missing: "no SuperCollider: silent", off: "sound off", stopped: "sound stopped" }[S.sound] || "";
 }
 
 const fmtDate = (u) => new Date(u * 1000).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -380,6 +383,7 @@ function renderHistory() {
 
 function renderBody(moving) {
   const p = S.body || S.sentPose;
+  $("touchBtn").hidden = S.backend?.kind !== "local";
   $("bodyState").textContent = p
     ? `${moving ? "moving to" : "at"} ${p.map((a) => Math.round(a * 100)).join(" · ")}`
     : "closed";
@@ -398,6 +402,10 @@ function wireUi() {
   $("quitBtn").onclick = async () => { await S.backend.quit(); document.body.innerHTML = '<p style="padding:40px">Weathering stopped. You can close this tab.</p>'; };
   $("speed").onchange = () => { S.backend.setSpeed?.(Number($("speed").value)); renderStatus(); };
   $("skipDay").onclick = () => S.backend.skip?.(86400);
+  $("touchBtn").onclick = async () => {
+    const r = await S.backend.touch?.();
+    toast(r?.ok ? "Knock" : "No sound engine running");
+  };
   $("runNow").onclick = () => { if (!S.readings.length) return toast("No readings yet"); if (S.view !== null) return toast("Back to now first"); doRun(now(), true); };
   $("hist").oninput = () => {
     const v = Number($("hist").value);

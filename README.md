@@ -14,7 +14,7 @@ software). Open it online: **<https://mcrozzoli.github.io/weathering/>**
 ```
  Sensor box ──radio──▶ Hub ══USB══ Computer (this app: keeps the show, runs the data)
  ESP32 + CO₂,          ESP32         │
- light, sound            │           └─ later: sound card ─▶ contact mics + speakers
+ light, sound            │           └─ SuperCollider ─ sound card ─▶ contact mics + panel speakers
                          └──radio──▶ Sculpture: ESP32 + 6 servos
 ```
 
@@ -57,6 +57,34 @@ sculpture at 12 hours a minute.
 - **History**: slide back through every run; *Show on sculpture* makes the
   body take that day's shape again.
 
+## Sound
+
+The sculpture is **silent until someone touches it**. A knock on a panel
+opens a window in which the panels' feedback rings — through Florian's
+POLYHARPYE resonators, held in check by **CoFlo** (complexity-controlled
+feedback gain: when the loop locks onto one tone, the gain comes down) —
+then dies away. The data never plays notes: each 12-hour run sends a
+*context*, and that shapes how the feedback may behave:
+
+| From the run | Shapes |
+|---|---|
+| openness | loop gain and how long a touch rings: closed at first, it barely answers |
+| the kind of hour now | which resonator leads (quiet → rings, in between → tabla, busy → comb) and its bands |
+| today's mix of kinds | the mix of the three resonators |
+| novelty | CoFlo's threshold and a frequency shift: unusual days don't settle into one tone |
+| the pose | the virtual panel's modes (on the real sculpture the fold itself re-tunes the panels) |
+
+SuperCollider starts with `Weathering.command`. Without a sound card it
+plays a **virtual panel** (and an imaginary visitor knocks now and then);
+the page's **Touch** button knocks too. With the real sculpture —
+contact mics in, panel speakers out, through a sound card at one sample
+rate — start `./Weathering.command --sound-live`. Safety is built in and
+can't be switched off: a slow automatic gain and a brickwall limiter.
+CoFlo's UGen is installed once per machine with `tools/build_cccrpc.sh`;
+without it a simpler measure stands in. Tune on the real panels with
+`WX_DEBUG=1` (meters in `~/.weathering/sound.log`). Engine:
+`sc/weathering_sound.scd`.
+
 ## If something stops
 
 - **Page closed**: the app keeps saving readings. Reopen
@@ -88,7 +116,7 @@ Online, the same lives in the browser; *⚙ → Export data* saves it.
 ```bash
 python3 -m venv .venv && .venv/bin/pip install pyserial pytest
 node --test tests/js/*.test.mjs      # protocol, room, pipeline, twin, fake hub
-.venv/bin/python -m pytest           # local app end to end, firmware contract
+.venv/bin/python -m pytest           # local app end to end, firmware contract, sound (headless, muted)
 .venv/bin/python -m app --fake 720   # local app with the pretend hub
 tools/build_firmware.sh              # rebuild app/static/firmware/ after editing firmware/
 ```
@@ -107,7 +135,6 @@ Every push to `main` runs the tests on GitHub and publishes `app/static`.
 
 ## Next
 
-Sound (the sculpture silent until touched, its feedback shaped by the
-contextual algorithms) waits for the microphone tests in the panels.
-Learned mappings (teach a few data-state ↔ shape pairs, let a small network
+The sound needs calibrating on the real panels once the contact mics are
+in (gains, the touch threshold, CoFlo's threshold). Learned mappings (teach a few data-state ↔ shape pairs, let a small network
 find the rest) are planned. See [CREDITS.md](CREDITS.md) for who and what.

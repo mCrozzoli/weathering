@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseLine, formatPose, readingToCsv, csvToReading, formatReading, CSV_HEADER } from "../../app/static/js/protocol.js";
 import { Room } from "../../app/static/js/room.js";
-import { runPipeline, hourly, dueRun, nextRun, openness, eigSym, percentile, labelHours, ALGORITHM_IDS } from "../../app/static/js/pipeline.js";
+import { runPipeline, hourly, dueRun, nextRun, openness, eigSym, percentile, labelHours, soundContext, ALGORITHM_IDS } from "../../app/static/js/pipeline.js";
 import { vertices, PAIRS, FACES, T_JESSEN } from "../../app/static/js/twin.js";
 import { FakeHub } from "../../app/static/js/fakehub.js";
 
@@ -207,4 +207,18 @@ test("the fake hub speaks the protocol and runs fast", async () => {
   assert.ok(lines.at(-1).startsWith("OK CFG"));
   hub.write("NOPE");
   assert.ok(lines.at(-1).startsWith("ERR"));
+});
+
+// ---------------------------------------------------------------- sound
+test("each run carries a sound context, not sensor values", () => {
+  const rs = simulate(4);
+  const run = runPipeline(rs, rs.at(-1).unix);
+  const ctx = soundContext(run, labelHours(rs, run));
+  assert.deepEqual(Object.keys(ctx).sort(), ["between", "busy", "kind", "novelty", "openness", "quiet"]);
+  assert.ok([0, 1, 2].includes(ctx.kind));
+  assert.ok(Math.abs(ctx.quiet + ctx.between + ctx.busy - 1) < 0.01);
+  assert.equal(ctx.openness, run.openness);
+  assert.ok(ctx.novelty >= 0 && ctx.novelty <= 1);
+  const empty = soundContext(null, null);
+  assert.equal(empty.openness, 0);
 });

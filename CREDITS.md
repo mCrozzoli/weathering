@@ -18,6 +18,12 @@
 - PCA, k-means (with k-means++ seeding: Arthur & Vassilvitskii, 2007),
   Jacobi eigenvalue rotations — textbook methods, implemented in
   `app/static/js/pipeline.js`.
+- **CoFlo**: complexity-controlled feedback gain — Chris Kiefer, Dan
+  Overholt, Alice Eldridge, *Shaping the behaviour of feedback instruments
+  with complexity-controlled gain dynamics*, NIME 2020. Complexity measured
+  with random projection (Chris Kiefer, SMC 2023).
+- The resonators in `sc/weathering_sound.scd` are Florian's POLYHARPYE
+  voices (ringPaz, tabloid, sitar), fed by the panels' own mics.
 - The app's shape (browser over Web Serial, firmware installed from the
   page, ESP-NOW boards that find each other) follows Miguel's
   [calum-organ](https://github.com/mCrozzoli/calum-organ).
@@ -28,6 +34,8 @@
 |---|---|---|
 | esptool-js 0.5.7 (Espressif) | loaded from unpkg.com, only when installing firmware | Apache-2.0 |
 | pyserial | installed by `Weathering.command` | BSD-3-Clause |
+| SuperCollider 3.13 | the sound engine; installed separately | GPL-3.0 |
+| libcccrt / CccRPC (Chris Kiefer) | built on each machine by `tools/build_cccrpc.sh`, not shipped | MIT |
 | Arduino-ESP32 core 2.0.14 (Espressif) | compiled into `app/static/firmware/*` | LGPL-2.1 |
 | ESP-IDF (Espressif): bootloader, ESP-NOW | compiled into `app/static/firmware/*` | Apache-2.0 |
 

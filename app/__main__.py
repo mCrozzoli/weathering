@@ -6,6 +6,10 @@
     --fake [SPEED]   no hardware: start the pretend hub (sim/fake_hub.py)
                      on a pseudo-port and connect to it (SPEED × real time)
     --no-browser     don't open the page
+    --no-sound       don't start SuperCollider
+    --sound-live     sound with the real sculpture: contact mics in, panel
+                     speakers out, through the sound card (default: a
+                     virtual panel, nothing needed but SuperCollider)
 """
 from __future__ import annotations
 
@@ -26,6 +30,8 @@ def main(argv=None) -> int:
     ap.add_argument("--port")
     ap.add_argument("--fake", nargs="?", const=60.0, type=float)
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--no-sound", action="store_true")
+    ap.add_argument("--sound-live", action="store_true")
     ap.add_argument("--http", type=int, default=8770)
     a = ap.parse_args(argv)
 
@@ -52,6 +58,16 @@ def main(argv=None) -> int:
         else:
             print("[weathering] plug the hub in, then pick its port in the page")
 
+    sound = None
+    if not a.no_sound:
+        from .sound import Sound
+        sound = Sound(store.ROOT.parent, mode="live" if a.sound_live else "virtual")
+        if sound.start():
+            print(f"[weathering] sound: SuperCollider starting ({sound.mode}); log in {sound.log_path}")
+        else:
+            print("[weathering] sound: SuperCollider not found — the show runs silently")
+        app.attach_sound(sound)
+
     httpd = serve(app, port=a.http)
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
     print(f"[weathering] show '{app.show.name}' — {app.show.count()} readings in {app.show.dir}")
@@ -68,6 +84,8 @@ def main(argv=None) -> int:
         httpd.serve_forever()
     finally:
         app.link.close()
+        if sound:
+            sound.stop()
         if fake:
             fake.stop()
     print("[weathering] stopped.")

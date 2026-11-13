@@ -16,7 +16,12 @@ each run back.
     POST /api/show/open {name} open (or start) a show
     POST /api/run {run}        store a run
     POST /api/settings {...}   run times, driving algorithm, show length
+    POST /api/touch            knock on the (virtual) sculpture
     POST /api/quit
+
+Sound: if a `Sound` (app/sound.py) is attached, each run's context and the
+body's pose go to SuperCollider over OSC, and are re-sent every 30 s so a
+restarted SuperCollider picks the show up where it is.
 """
 from __future__ import annotations
 
@@ -44,12 +49,59 @@ class App:
         self.link = SerialLink(self._on_line, self._on_status)
         self.last_lines: list[str] = []          # recent hub lines, for a page that opens late
         self.quit = threading.Event()
+        self.sound = None
+        self.context = None
+        self.pose = None
+        self._sound_state = None
+        runs = self.show.runs()
+        if runs and isinstance(runs[-1].get("context"), dict):
+            self.context = runs[-1]["context"]
+
+    # ---------------------------------------------------------- sound
+    def attach_sound(self, sound) -> None:
+        self.sound = sound
+        threading.Thread(target=self._sound_loop, daemon=True, name="sound-resend").start()
+
+    def send_context(self) -> None:
+        if self.sound is None or not self.context:
+            return
+        args = []
+        for k in ("openness", "kind", "quiet", "between", "busy", "novelty"):
+            try:
+                args += [k, float(self.context.get(k, 0) or 0)]
+            except (TypeError, ValueError):
+                pass
+        self.sound.send("/wx/context", *args)
+
+    def send_pose(self) -> None:
+        if self.sound is not None and self.pose and len(self.pose) == 6:
+            self.sound.send("/wx/pose", *[float(a) for a in self.pose])
+
+    def _sound_loop(self) -> None:
+        sent_ready, ticks = False, 0
+        while not self.quit.is_set():
+            state = self.sound.state
+            if state != self._sound_state:
+                self._sound_state = state
+                self.broadcast({"type": "line", "line": f"LOG (sound) {state}"})
+            ticks += 1
+            if state == "ready" and (not sent_ready or ticks % 30 == 0):
+                sent_ready = True
+                self.send_context()
+                self.send_pose()
+            self.quit.wait(1.0)
 
     # ----------------------------------------------------------- the hub
     def _on_line(self, line: str) -> None:
         r = protocol.parse_reading(line)
         if r is not None:
             self.show.add_reading(r)               # on disk before anyone sees it
+        elif line.startswith("BODY "):
+            try:
+                self.pose = [float(x) for x in line.split()[1:7]]
+                self.send_pose()
+            except ValueError:
+                pass
         self.last_lines = (self.last_lines + [line])[-200:]
         self.broadcast({"type": "line", "line": line})
 
@@ -72,6 +124,7 @@ class App:
             "link": self.link.status(),
             "show": self.show.meta() | {"readings": self.show.count(), "dir": str(self.show.dir)},
             "ports": ports(),
+            "sound": self.sound.state if self.sound else "off",
         }
 
     def open_show(self, name: str) -> None:
@@ -190,7 +243,15 @@ def make_handler(app: App):
                 if not isinstance(run, dict):
                     return self._json({"error": "no run"}, 400)
                 app.show.add_run(run)
+                if isinstance(run.get("context"), dict):
+                    app.context = run["context"]
+                    app.send_context()
                 return self._json({"ok": True})
+            if path == "/api/touch":
+                ok = app.sound is not None and app.sound.state == "ready"
+                if ok:
+                    app.sound.send("/wx/touch")
+                return self._json({"ok": ok})
             if path == "/api/settings":
                 return self._json(app.show.update_meta(b))
             if path == "/api/quit":

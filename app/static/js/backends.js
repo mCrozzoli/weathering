@@ -48,6 +48,7 @@ export class LocalBackend {
   async connect(port) { return this._post("api/connect", { port }); }
   async disconnect() { return this._post("api/disconnect", {}); }
   async quit() { return this._post("api/quit", {}); }
+  async touch() { return this._post("api/touch", {}); }
 
   async loadShow() {
     const s = await (await fetch("api/show", { cache: "no-store" })).json();

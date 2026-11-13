@@ -335,3 +335,26 @@ export function nextRun(afterUnix, runTimes = ["06:00", "18:00"], tzOffsetMin = 
   for (const dd of [0, 86400]) for (const s of mins) cands.push(day + dd + s);
   return cands.filter((b) => b > afterUnix).sort((a, b) => a - b)[0];
 }
+
+// ------------------------------------------------------------ sound
+// What a run tells the sound engine (sc/weathering_sound.scd). Not the
+// sensor values: the context — how open the show is, which kind of hour it
+// is now, how today divides into the three kinds, how new today is.
+// labels: Map hourUnix → kind, from labelHours(readings, run).
+export function soundContext(run, labels) {
+  const c = run?.poses?.clusters || [];
+  let kind = 1;
+  if (labels && run) {
+    const h = Math.floor(run.unix / 3600) * 3600;
+    for (let back = 0; back < 12; back++) {
+      const k = labels.get(h - back * 3600);
+      if (k !== undefined) { kind = k; break; }
+    }
+  }
+  return {
+    openness: run?.openness ?? 0,
+    kind,
+    quiet: c[0] ?? 0.33, between: c[1] ?? 0.34, busy: c[2] ?? 0.33,
+    novelty: run?.poses?.extremes?.[5] ?? 0,
+  };
+}

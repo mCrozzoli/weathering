@@ -157,3 +157,37 @@ def test_static_files_and_traversal(tmp_path):
             urllib.request.urlopen(base + "/../app/server.py", timeout=5)
     finally:
         httpd.shutdown()
+
+
+class FakeSound:
+    state = "ready"
+
+    def __init__(self):
+        self.sent = []
+
+    def send(self, address, *args):
+        self.sent.append((address, args))
+
+
+def test_runs_and_pose_reach_the_sound(tmp_path):
+    app = App("snd", tmp_path)
+    snd = FakeSound()
+    app.sound = snd                               # attach without the resend thread
+    httpd = serve(app, port=8930)
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        ctx = {"openness": 0.4, "kind": 2, "quiet": 0.1, "between": 0.3, "busy": 0.6, "novelty": 0.2}
+        _post(base + "/api/run", {"run": {"run": 1, "sent": [0] * 6, "context": ctx}})
+        addr, args = snd.sent[-1]
+        assert addr == "/wx/context"
+        d = dict(zip(args[0::2], args[1::2]))
+        assert d["kind"] == 2.0 and d["openness"] == 0.4
+        app._on_line("BODY 0.1 0.2 0.3 0.4 0.5 0.6 moving=1")
+        assert snd.sent[-1] == ("/wx/pose", (0.1, 0.2, 0.3, 0.4, 0.5, 0.6))
+        assert _post(base + "/api/touch", {})["ok"] is True
+        assert snd.sent[-1][0] == "/wx/touch"
+        # a restart remembers the last context, ready to re-send
+        assert App("snd", tmp_path).context["kind"] == 2
+    finally:
+        httpd.shutdown()
