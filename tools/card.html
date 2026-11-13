@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weathering — card image</title>
+<style>
+  body { margin: 0; background: #05080b; color: #75828c; font: 12px ui-monospace, Menlo, monospace; }
+  canvas { display: block; width: 100%; max-width: 1600px; margin: 0 auto; }
+  p { text-align: center; }
+</style>
+</head>
+<body>
+<!--
+  The project card for crozzoli.com (and anywhere else), drawn by the app's
+  own code from a simulated two-week show: real rings, the twin in the shape
+  that run gave, and the other two readings of the same data faint at the
+  sides. 1600×900; the heart sits in the central square, so a square crop
+  still works. Serve app/static's parent and open tools/card.html; ?days=N,
+  ?seed=N change the show; ?save=URL posts the JPEG there.
+-->
+<canvas id="c" width="1600" height="900"></canvas>
+<p id="info"></p>
+<script type="module">
+import { Room } from "../app/static/js/room.js";
+import { runPipeline, labelHours, nextRun } from "../app/static/js/pipeline.js";
+import { drawTwin } from "../app/static/js/twin.js";
+
+const q = new URLSearchParams(location.search);
+const DAYS = Number(q.get("days") || 14), SEED = Number(q.get("seed") || 3);
+const W = 1600, H = 900, CX = W / 2, CY = H / 2;
+const BG = "#090c10";
+const KIND = [[77, 147, 166], [196, 174, 112], [176, 74, 104]];
+const TZ = 1;                                   // a fixed clock, so the image repeats
+
+// ---- a simulated show: readings every 5 min, a run every 12 hours
+const start = 1_794_000_000 - (1_794_000_000 % 86400) - TZ * 3600 + 9 * 3600;   // a morning
+const room = new Room({ seed: SEED, tzOffsetH: TZ });
+const readings = [];
+for (let u = start; u < start + DAYS * 86400; u += 300) readings.push({ unix: u, seq: readings.length, sim: [], old: false, ...room.read(u) });
+let prev = null, t = start, runs = [];
+while (true) {
+  t = nextRun(t, ["06:00", "18:00"], TZ * 60);
+  if (t > readings.at(-1).unix) break;
+  prev = runPipeline(readings, t, prev, { showDays: DAYS + 2, driving: "pca" });
+  runs.push(prev);
+}
+const run = runs.at(-1);
+const labels = labelHours(readings, run);
+
+// ---- draw
+const c = document.getElementById("c");
+const g = c.getContext("2d");
+g.fillStyle = BG; g.fillRect(0, 0, W, H);
+
+// a faint wash behind everything, in the colour of now
+const nowKind = labels.get(Math.floor(run.unix / 3600) * 3600) ?? 1;
+const kc = KIND[nowKind];
+let grad = g.createRadialGradient(CX, CY, 40, CX, CY, 520);
+grad.addColorStop(0, `rgba(${kc},0.10)`); grad.addColorStop(1, "rgba(0,0,0,0)");
+g.fillStyle = grad; g.fillRect(0, 0, W, H);
+
+// rings: one per day, one arc per hour, inside → outside = first day → last
+const r0 = 228, r1 = 380;
+const rw = (r1 - r0) / DAYS;
+const dayOf = (u) => Math.floor((u + TZ * 3600) / 86400);
+const firstDay = dayOf(readings[0].unix);
+const hours = [...new Set(readings.map((r) => Math.floor(r.unix / 3600) * 3600))];
+g.lineCap = "butt";
+for (const h of hours) {
+  const day = dayOf(h) - firstDay;
+  const hod = Math.floor(((h + TZ * 3600) % 86400) / 3600);
+  const a0 = (hod / 24) * 2 * Math.PI - Math.PI / 2;
+  const kind = h <= run.unix ? labels.get(h) : undefined;
+  const col = kind === undefined ? [60, 70, 80] : KIND[kind];
+  const fresh = 0.45 + 0.5 * (day + 1) / DAYS;          // older days a little fainter
+  g.beginPath();
+  g.arc(CX, CY, r0 + day * rw + rw / 2, a0 + 0.012, a0 + (2 * Math.PI) / 24 - 0.012);
+  g.strokeStyle = `rgba(${col},${(kind === undefined ? 0.3 : 0.9 * fresh).toFixed(3)})`;
+  g.lineWidth = rw * 0.66;
+  g.stroke();
+}
+// the hours of the day, as a clock
+for (let k = 0; k < 24; k++) {
+  const a = (k / 24) * 2 * Math.PI - Math.PI / 2;
+  const len = k % 6 === 0 ? 14 : 6;
+  g.beginPath();
+  g.moveTo(CX + Math.cos(a) * (r1 + 10), CY + Math.sin(a) * (r1 + 10));
+  g.lineTo(CX + Math.cos(a) * (r1 + 10 + len), CY + Math.sin(a) * (r1 + 10 + len));
+  g.strokeStyle = k % 6 === 0 ? "rgba(195,204,211,0.45)" : "rgba(195,204,211,0.18)";
+  g.lineWidth = 1.2;
+  g.stroke();
+}
+// now
+const last = run.unix;
+const aNow = (((last + TZ * 3600) % 86400) / 86400) * 2 * Math.PI - Math.PI / 2;
+const rNow = r0 + (dayOf(last) - firstDay) * rw + rw / 2;
+g.beginPath(); g.arc(CX + Math.cos(aNow) * rNow, CY + Math.sin(aNow) * rNow, 4.5, 0, 2 * Math.PI);
+g.fillStyle = "#eef3f6"; g.fill();
+
+// the other two readings of the same data, faint, at the sides
+const side = [["clusters", 205], ["extremes", W - 205]];
+for (const [id, x] of side) {
+  g.save(); g.globalAlpha = 0.34;
+  drawTwin(g, x, CY, 84, run.poses[id], { color: [150, 170, 184], spin: id === "clusters" ? 0.9 : 2.1, tilt: 0.5, glow: false });
+  g.restore();
+}
+// the sculpture: the driving reading, scaled by how open the show has become
+drawTwin(g, CX, CY, 158, run.sent, { color: kc, spin: 0.55, tilt: 0.42, glow: true });
+
+document.getElementById("info").textContent =
+  `${DAYS} days · ${readings.length} readings · ${runs.length} runs · openness ${run.openness} · sent ${run.sent.join(" ")}`;
+
+const save = q.get("save");
+if (save) {
+  c.toBlob((b) => fetch(save, { method: "POST", body: b }).then(() => { document.title = "saved"; }), "image/jpeg", 0.92);
+}
+</script>
+</body>
+</html>
