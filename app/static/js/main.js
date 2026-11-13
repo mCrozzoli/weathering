@@ -545,6 +545,7 @@ async function renderBoard() {
   $("boardWhat").textContent = "";
   $("boardInfo").innerHTML = known
     ? `<b>${boards.ROLE_INFO[b.role].label}</b> <span class="dim">· firmware ${b.fw} · ${b.mac}${b.group ? ` · group ${b.group}` : ""}</span>`
+      + (b.role === "sensor" ? `<br><span class="dim">sensors found: ${b.settings.sensors || "?"} · simulated: ${b.settings.sim || "?"}</span>` : "")
     : `<b>No Weathering firmware on this board yet.</b> <span class="dim">Install one part below.</span>`;
   const roles = $("roles");
   roles.innerHTML = "";

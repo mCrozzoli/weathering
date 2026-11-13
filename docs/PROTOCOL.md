@@ -165,10 +165,22 @@ whose time passed while the app was off runs at once.
    sensor's backlog. The app sends `TIME` on connect and every 5 minutes.
 2. **Duplicates happen.** After a lost ACK the same reading can arrive
    twice; the app drops duplicates by `(unix, seq)` (both the local app and
-   the browser do).
+   the browser do). Readings are sent only once the sensor has a clock
+   (`unix` is never 0; readings taken before the first `TIME` get their
+   time filled in). `seq` survives reboots (saved in blocks of 64), so a
+   reboot can leave a gap of up to 64.
 3. `NODE … fw 0.1`: the radio packet carries major.minor only.
-4. `CFG` is answered `OK CFG` by the hub; the target board's own answer
-   comes back as `LOG <role> OK SET` (or `ERR …`), carried over the radio in
-   a `WX_CONFIG` packet.
+4. `CFG` is answered `OK CFG` once sent (or `ERR <role> not heard`); the
+   target board's own answer comes back as `LOG <role> OK SET` (or `LOG
+   <role> ERR …`), carried over the radio in a `WX_CONFIG` packet. Long CFG
+   lines are split over several 40-byte packets. `RELAX`/`READ`/`TEST`
+   reply `OK RELAX`/`OK READ`/`OK TEST` (plus a LOG line, and a broadcast,
+   if that board hasn't been heard yet).
 5. A new `POSE` while one is still being delivered NAKs the older `seq`;
    only the newest pose's ACK/NAK matters.
+6. **INFO details.** Sensor: `sensors=scd41,bh1750,mic` (devices found, or
+   `none`), `sim=co2,t,rh,lux,db` (simulated channels, or `none`), plus
+   `simulate sda scl mic_pin backlog hub time`. Hub: adds `time=<unix>`.
+   Body: adds `moving= relaxed= hub=`; its `pose=` is the TARGET. On their
+   own USB the sensor echoes scheduled readings as `LOG R …` (a USB `READ`
+   prints a plain `R …`) and the body prints `BODY …`.
