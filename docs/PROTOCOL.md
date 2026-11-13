@@ -156,3 +156,19 @@ enum { WX_HELLO=1, WX_READING=2, WX_ACK=3, WX_TIME=4, WX_POSE=5,
 
 Restart = reopen the show: readings and runs reload from these files; a run
 whose time passed while the app was off runs at once.
+
+## Clarifications from the firmware build (v0.1.0)
+
+1. **The computer must keep talking.** The hub forwards readings (and ACKs
+   them) only after a `TIME` since boot and while some USB line arrived in
+   the last 30 minutes. Otherwise nothing is lost: the readings wait in the
+   sensor's backlog. The app sends `TIME` on connect and every 5 minutes.
+2. **Duplicates happen.** After a lost ACK the same reading can arrive
+   twice; the app drops duplicates by `(unix, seq)` (both the local app and
+   the browser do).
+3. `NODE … fw 0.1`: the radio packet carries major.minor only.
+4. `CFG` is answered `OK CFG` by the hub; the target board's own answer
+   comes back as `LOG <role> OK SET` (or `ERR …`), carried over the radio in
+   a `WX_CONFIG` packet.
+5. A new `POSE` while one is still being delivered NAKs the older `seq`;
+   only the newest pose's ACK/NAK matters.

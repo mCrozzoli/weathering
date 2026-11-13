@@ -1,0 +1,15 @@
+[project]
+name = "weathering"
+version = "0.1.0"
+description = "Weathering: a data sculpture that unfolds as it lives a room's air, light and sound (Miguel Angel Crozzoli & Florian Goeschke)"
+requires-python = ">=3.9"
+dependencies = ["pyserial>=3.5"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["app", "sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

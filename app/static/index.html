@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weathering</title>
+<meta name="description" content="A data sculpture that unfolds as it lives a room's air, light and sound.">
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpath d=%22M16 3 29 16 16 29 3 16Z%22 fill=%22%234d93a6%22/%3E%3Cpath d=%22M16 3 29 16 16 16Z%22 fill=%22%238cc4d8%22/%3E%3C/svg%3E">
+</head>
+<body>
+<header>
+  <div class="brand">WEATHERING</div>
+  <nav>
+    <button data-view="live" class="on">Live</button>
+    <button data-view="setup">Setup</button>
+    <button data-view="boards">Boards</button>
+  </nav>
+  <div class="status" id="status">
+    <span id="statusText"><span class="dot"></span>Not connected</span>
+    <span id="nodes"></span>
+  </div>
+  <button id="connectBtn" class="primary">Connect</button>
+  <button id="settingsBtn" class="quiet" title="Settings">⚙</button>
+  <button id="quitBtn" class="quiet" hidden>Quit</button>
+</header>
+
+<main>
+  <!-- ============================================================ LIVE -->
+  <section id="view-live">
+    <div class="stage">
+      <canvas id="stage"></canvas>
+      <div class="overlay tl">
+        <div id="clock">—</div>
+        <div id="lived" class="dim">waiting for the first reading</div>
+        <div>openness <span id="openVal">0.00</span><div class="bar"><div id="openBar" style="width:0"></div></div></div>
+        <div id="nextRun" class="dim"></div>
+      </div>
+      <div class="banner" id="demoBanner" hidden>Demo · no hardware</div>
+      <div class="overlay bl" id="demoCtl" hidden>
+        <span class="dim">speed</span>
+        <select id="speed">
+          <option value="60">×60 · an hour a minute</option>
+          <option value="720" selected>×720 · 12 hours a minute</option>
+          <option value="4320">×4320 · 3 days a minute</option>
+        </select>
+        <button id="skipDay">+1 day</button>
+      </div>
+      <div class="legend">
+        each ring = one day · each arc = one hour<br>
+        quiet hours<span class="sw" style="background:var(--k0)"></span><br>
+        in between<span class="sw" style="background:var(--k1)"></span><br>
+        busy hours<span class="sw" style="background:var(--k2)"></span>
+      </div>
+    </div>
+    <aside>
+      <h3>The room now</h3>
+      <div id="room"></div>
+      <h3>Three readings of the data <button class="quiet" id="algoHelp" title="What are these?">?</button></h3>
+      <div class="algos" id="algos"></div>
+      <div class="drives" id="drives">The highlighted one moves the sculpture. Click another to switch.</div>
+      <h3>Sculpture</h3>
+      <div class="row">
+        <button id="runNow">Run now</button>
+        <span class="dim" id="bodyState"></span>
+      </div>
+    </aside>
+    <footer class="history">
+      <span class="dim">history</span>
+      <input type="range" id="hist" min="0" max="0" value="0">
+      <span id="histLabel">now</span>
+      <button id="histToBody" hidden>Show on sculpture</button>
+      <button id="histNow" hidden>Back to now</button>
+    </footer>
+  </section>
+
+  <!-- =========================================================== SETUP -->
+  <section id="view-setup" hidden>
+    <div class="page">
+      <h2>How it connects</h2>
+      <svg class="diagram" viewBox="0 0 820 300" role="img" aria-label="Sensor box sends by radio to the hub; the hub is on USB to the computer; the hub sends by radio to the sculpture; later a sound card links the computer to the sculpture's microphones and speakers.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8cc4d8"/></marker>
+          <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5d6a74"/></marker>
+        </defs>
+        <style>
+          .bx { fill: #0a0d11; stroke: #2a3540; stroke-width: 1.2; rx: 6; }
+          .bx.hl { stroke: #8cc4d8; }
+          .t1 { fill: #e8eef2; font: 600 13px ui-monospace, Menlo, monospace; }
+          .t2 { fill: #75828c; font: 11px ui-monospace, Menlo, monospace; }
+          .ln { stroke: #8cc4d8; stroke-width: 1.4; fill: none; }
+          .radio { stroke-dasharray: 5 4; }
+          .later { stroke: #5d6a74; stroke-dasharray: 3 4; }
+          .lb { fill: #8cc4d8; font: 11px ui-monospace, Menlo, monospace; }
+          .lbd { fill: #5d6a74; font: 11px ui-monospace, Menlo, monospace; }
+        </style>
+        <!-- sensor -->
+        <rect class="bx" x="20" y="30" width="190" height="78"/>
+        <text class="t1" x="34" y="56">Sensor box</text>
+        <text class="t2" x="34" y="76">ESP32 + CO₂, light, sound</text>
+        <text class="t2" x="34" y="93">somewhere in the room</text>
+        <!-- hub -->
+        <rect class="bx hl" x="315" y="30" width="170" height="78"/>
+        <text class="t1" x="329" y="56">Hub</text>
+        <text class="t2" x="329" y="76">ESP32, plugged in</text>
+        <text class="t2" x="329" y="93">by USB</text>
+        <!-- computer -->
+        <rect class="bx hl" x="590" y="30" width="210" height="78"/>
+        <text class="t1" x="604" y="56">Computer</text>
+        <text class="t2" x="604" y="76">this page · keeps the show</text>
+        <text class="t2" x="604" y="93">runs the data every 12 h</text>
+        <!-- sculpture -->
+        <rect class="bx" x="295" y="200" width="210" height="78"/>
+        <text class="t1" x="309" y="226">Sculpture</text>
+        <text class="t2" x="309" y="246">ESP32 + 6 servos</text>
+        <text class="t2" x="309" y="263">own power for the servos</text>
+        <!-- sound (later) -->
+        <rect class="bx" x="590" y="200" width="210" height="78" style="stroke-dasharray:3 4"/>
+        <text class="t1" x="604" y="226" style="fill:#75828c">Sound card</text>
+        <text class="t2" x="604" y="246">contact mics + speakers</text>
+        <text class="t2" x="604" y="263">next phase</text>
+        <!-- links -->
+        <path class="ln radio" d="M210,69 L313,69" marker-end="url(#ar)"/>
+        <text class="lb" x="222" y="61">radio</text>
+        <path class="ln" d="M485,62 L588,62" marker-end="url(#ar)"/>
+        <path class="ln" d="M588,78 L487,78" marker-end="url(#ar)"/>
+        <text class="lb" x="508" y="54">USB cable</text>
+        <path class="ln radio" d="M400,108 L400,198" marker-end="url(#ar)"/>
+        <text class="lb" x="408" y="158">radio · the pose</text>
+        <path class="ln later" d="M695,108 L695,198" marker-end="url(#ad)"/>
+        <path class="ln later" d="M588,239 L507,239" marker-end="url(#ad)"/>
+        <text class="lbd" x="520" y="231">audio</text>
+      </svg>
+
+      <h2>Start</h2>
+      <ol class="steps">
+        <li><b>Install the boards once.</b> Open <b>Boards</b>, plug each ESP32 in by USB and install its part: Sensor box, Hub, Sculpture. Needs Chrome or Edge.</li>
+        <li><b>Power the sensor box and the sculpture.</b> They find the hub by themselves (no addresses to type). The servos need their own 5–6 V supply.</li>
+        <li><b>Plug the hub into the computer and double-click <code>Weathering.command</code>.</b> This page opens and connects. Three dots in the top bar turn green: hub, sensor, sculpture.</li>
+        <li><b>Leave it.</b> A reading arrives every 5 minutes and is saved at once. At 06:00 and 18:00 the data is read again from the start and the sculpture takes its new shape.</li>
+      </ol>
+
+      <h2>If something stops</h2>
+      <ol class="steps">
+        <li><b>Page closed:</b> readings keep being saved by the app. Open <code>http://127.0.0.1:8770</code> again, or double-click <code>Weathering.command</code>.</li>
+        <li><b>Computer off or crashed:</b> double-click <code>Weathering.command</code>. The show reopens where it was; a run that was missed happens at once. The sculpture kept its shape meanwhile, and the sensor box kept about a day of readings and sends them now.</li>
+        <li><b>For weeks unattended</b> (Mac mini): System Settings → Energy → <i>Start up automatically after a power failure</i>; add <code>Weathering.command</code> to Login Items; turn off sleep.</li>
+      </ol>
+      <p class="dim">No hardware yet? Click <b>Connect → Demo</b>: a pretend room and sculpture, as fast as you like. Everything above works the same.</p>
+    </div>
+  </section>
+
+  <!-- ========================================================== BOARDS -->
+  <section id="view-boards" hidden>
+    <div class="page">
+      <h2>Boards</h2>
+      <p class="dim" id="boardsIntro">Plug one ESP32 in by USB, then click <b>Connect a board</b>. Install its part, change its settings, test it. One board at a time.</p>
+      <p id="noSerial" class="dim" hidden>Setting up boards needs <b>Chrome</b> or <b>Edge</b> on a computer.</p>
+      <p id="hubBusy" class="dim" hidden>The app is holding the hub's USB port. To set up the hub itself, click <b>Connect → Disconnect</b> first.</p>
+      <div class="row"><button id="boardConnect" class="primary">Connect a board…</button><span id="boardWhat" class="dim"></span></div>
+
+      <div class="card" id="boardCard" hidden>
+        <div id="boardInfo"></div>
+        <h3>Install</h3>
+        <div class="roles" id="roles"></div>
+        <div class="progress" id="flashBar" hidden><div></div></div>
+
+        <div id="sensorCfg" hidden>
+          <h3>Sensor box</h3>
+          <div class="row">read every
+            <select id="interval">
+              <option value="60">1 minute</option><option value="300">5 minutes</option>
+              <option value="600">10 minutes</option><option value="1800">30 minutes</option>
+            </select>
+            <button id="readNow">Read now</button>
+          </div>
+          <div id="sensorNow" class="dim"></div>
+        </div>
+
+        <div id="bodyCfg" hidden>
+          <h3>Sculpture servos</h3>
+          <table class="servos">
+            <thead><tr><th>servo</th><th>pin</th><th>min µs</th><th>max µs</th><th>closed at</th><th></th></tr></thead>
+            <tbody id="servoRows"></tbody>
+          </table>
+        </div>
+
+        <div class="row" id="groupRow" hidden>
+          group <input type="number" id="group" min="1" max="250" value="1">
+          <span class="dim">keep every board of one installation in the same group</span>
+        </div>
+        <div class="row"><button id="saveBoard" hidden>Save to board</button><span id="saveMsg" class="dim"></span></div>
+        <h3>Board says</h3>
+        <pre class="log" id="boardLog"></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============================================================ DIALOGS -->
+<dialog id="connectDlg">
+  <h2>Connect</h2>
+  <div class="choices" id="connectChoices"></div>
+  <div class="row"><button id="connectClose" class="quiet">Close</button></div>
+</dialog>
+
+<dialog id="settingsDlg">
+  <h2>Settings</h2>
+  <label>Show <span id="showName" class="dim"></span></label>
+  <label>Runs at <input id="runTimes" placeholder="06:00, 18:00"></label>
+  <label>Show length (days) <input type="number" id="showDays" min="1" max="365"></label>
+  <label>Glide (seconds) <input type="number" id="glide" min="0" max="3600"></label>
+  <p class="dim" style="margin:4px 0 12px">The show length sets how fast the sculpture opens: fully open around the last day. The glide is how slowly it moves to each new shape.</p>
+  <div class="row">
+    <button id="saveSettings" class="primary">Save</button>
+    <button id="exportBtn">Export data</button>
+    <button id="resetDemo" hidden>Restart demo</button>
+    <button id="settingsClose" class="quiet">Close</button>
+  </div>
+</dialog>
+
+<dialog id="helpDlg">
+  <h2>Three readings of the data</h2>
+  <div id="helpBody"></div>
+  <p class="dim">Every 12 hours each one reads everything gathered since the start and gives six numbers, one per servo. The highlighted one moves the sculpture, scaled by its openness: closed at first, opening as the show lives.</p>
+  <div class="row"><button id="helpClose" class="quiet">Close</button></div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

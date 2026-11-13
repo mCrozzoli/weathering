@@ -1,0 +1,7 @@
+{
+  "name": "weathering",
+  "private": true,
+  "type": "module",
+  "description": "Browser-side code is plain ES modules; this file only tells Node that, for the tests.",
+  "scripts": { "test": "node --test tests/js/*.test.mjs" }
+}
