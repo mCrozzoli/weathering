@@ -32,6 +32,14 @@ def find_sclang() -> str | None:
     return next((c for c in CANDIDATES if os.path.exists(c)), None)
 
 
+def free_udp_port() -> int:
+    """A UDP port nobody holds, for this engine's own scsynth."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 class Sound:
     def __init__(self, log_dir: Path, mode: str = "virtual", on_line=None, extra_env=None):
         self.mode = mode
@@ -50,7 +58,7 @@ class Sound:
             self.state = "missing"
             return False
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        env = {**os.environ, "WX_MODE": self.mode, **self.extra_env}
+        env = {**os.environ, "WX_MODE": self.mode, "WX_SERVER_PORT": str(free_udp_port()), **self.extra_env}
         self.proc = subprocess.Popen(
             [sclang, str(SCD)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL, text=True, bufsize=1, env=env, start_new_session=True)

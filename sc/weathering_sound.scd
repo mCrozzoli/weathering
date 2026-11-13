@@ -38,6 +38,8 @@
 //    WX_MASTER    output level to the speakers (0 = silent, for tests)
 //    WX_AUTOTOUCH 1 = in virtual mode, an imaginary visitor knocks now and then
 //    WX_RECORD    a .wav path: record the speaker signal (tests)
+//    WX_SERVER_PORT  scsynth's UDP port (the app picks a free one, so two
+//                 engines never share a server)
 //
 //  OSC (to this sclang): /wx/context k v k v … · /wx/pose a0..a5 · /wx/touch
 //                        /wx/set key value · /wx/panic · /wx/quit
@@ -52,7 +54,9 @@ var env = { |k, d| var v = k.getenv; if (v.isNil or: { v.isEmpty }) { d } { v } 
 ~autoTouch = env.("WX_AUTOTOUCH", "1") == "1";
 ~recPath   = env.("WX_RECORD", "");
 ~hasCoflo  = \CccRPC.asClass.notNil;
+~srvPort   = env.("WX_SERVER_PORT", "57110").asInteger;
 
+Server.default = s = Server(\weathering, NetAddr("127.0.0.1", ~srvPort));
 // Input only in live mode: the laptop mic's sample rate often differs from
 // the speakers', and scsynth won't start with open inputs at mismatched rates.
 s.options.numInputBusChannels  = if (~mode == \live) { ~ins } { 0 };
