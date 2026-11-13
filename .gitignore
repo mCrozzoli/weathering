@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# Show data never goes in the repo (it lives in ~/.weathering/)
+shows/
+*.csv
+!tests/fixtures/*.csv
+runs.jsonl
+# Secrets (none expected: ESP-NOW needs no Wi-Fi password)
+.env
+secrets.*
+# Arduino build output
+build/
+# macOS
+.DS_Store
