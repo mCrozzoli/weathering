@@ -47,19 +47,19 @@ sculpture at 12 hours a minute.
   hour the latest run found (quiet · in between · busy). Every run reads the
   whole past again, so the past can change colour.
 - **Readings of the data** — same data, different shapes:
-  *Room map* (the default: a self-organising map lays every hour the room
+  *SOM* (the default: a self-organising map lays every hour the room
   has had on an 8×8 map of similar hours; the shape says where today sits on
   it, how widely it wanders, how new it is), *Directions* (PCA: where today
   sits along the room's main directions of change, and how much it moves),
   *Kinds of hours* (k-means: today's and all time's share of each kind),
   *Unusual* (each sensor's percentile in its own history, plus how new today
   is). The highlighted one moves the sculpture; click another to switch.
-- **Taught**: your own mapping. Click **Teach…**, pick a moment on the
+- **MLP**: your own mapping. Click **Teach…**, pick a moment on the
   history slider, shape the twin with the six sliders (*Try on sculpture*
   shows it on the real body), then **Teach this moment**. After two or more
   moments a small network learns from them and gives a shape for every
   moment — slide through the history to preview it before clicking the
-  *Taught* card to let it move the sculpture. Taught shapes are kept with
+  *MLP* card to let it move the sculpture. Taught shapes are kept with
   the show; × forgets one.
 - **Openness**: how far the sculpture may open — mostly how long the show
   has lived, partly how much the room has moved. Closed at the start.

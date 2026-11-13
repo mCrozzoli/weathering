@@ -16,7 +16,7 @@
 import { CHANNELS } from "./protocol.js";
 
 export const ALGORITHMS = {
-  som:      { label: "Room map", about: "A self-organising map lays every hour since the opening out on a map of the room's states, learning by itself with no examples. Where today lives on that map, how widely it wanders, how familiar or new it is. The map grows from the last run's, so it weathers slowly instead of starting over." },
+  som:      { label: "SOM", about: "A self-organising map lays every hour since the opening out on a map of the room's states, learning by itself with no examples. Where today lives on that map, how widely it wanders, how familiar or new it is. The map grows from the last run's, so it weathers slowly instead of starting over." },
   pca:      { label: "Directions", about: "Where today sits along the room's three main directions of change, and how much it moves along them (PCA)." },
   clusters: { label: "Kinds of hours", about: "The room's hours fall into three kinds (k-means). How much of today, and of all time, is each kind." },
   extremes: { label: "Unusual", about: "How high today is in each sensor's own history, plus how new today is compared to everything before." },

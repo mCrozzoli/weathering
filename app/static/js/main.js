@@ -14,7 +14,7 @@ const KIND_RGB = [[77, 147, 166], [191, 170, 110], [176, 74, 104]];
 const NEUTRAL = [120, 134, 146];
 const NODE_STALE_S = 30;
 // the cards: the four readings, then the taught mapping
-const CARDS = { ...ALGORITHMS, taught: { label: "Taught", about: "Your own mapping, learned from shapes you teach on the twin (Teach…)." } };
+const CARDS = { ...ALGORITHMS, taught: { label: "MLP", about: "Your own mapping, learned from shapes you teach on the twin (Teach…)." } };
 const CARD_IDS = Object.keys(CARDS);
 
 const S = {
@@ -593,7 +593,7 @@ async function teachMoment() {
   ex.push({ run: r.run, unix: r.unix, input: dataState(r), output: S.teachPose.map((x) => +x.toFixed(3)) });
   S.meta.examples = ex;
   await saveExamples();
-  toast(S.taught ? `Taught: ${ex.length} shapes, the mapping is updated` : `Taught ${ex.length}: one more to make a mapping`);
+  toast(S.taught ? `MLP: ${ex.length} shapes, the mapping is updated` : `Taught ${ex.length}: one more to make a mapping`);
 }
 
 async function saveExamples() {
