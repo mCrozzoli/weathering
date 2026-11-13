@@ -18,6 +18,8 @@
 - PCA, k-means (with k-means++ seeding: Arthur & Vassilvitskii, 2007),
   Jacobi eigenvalue rotations — textbook methods, implemented in
   `app/static/js/pipeline.js`.
+- Isolation forest: Fei Tony Liu, Kai Ming Ting, Zhi-Hua Zhou, *Isolation
+  Forest*, ICDM 2008 — written from scratch in `pipeline.js`.
 - Self-organising map: Teuvo Kohonen, *Self-organized formation of
   topologically correct feature maps*, Biological Cybernetics 43 (1982).
 - Teaching by example (a few input → shape pairs, a small network learns

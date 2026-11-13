@@ -269,3 +269,20 @@ test("a taught mapping reproduces its examples and fills in between", () => {
   assert.equal(trainTaught([examples[0]]), null, "one example isn't a mapping");
   assert.deepEqual(trainTaught(examples).net.predict(examples[0].input), t.net.predict(examples[0].input), "deterministic");
 });
+
+// ------------------------------------------------------ isolation forest
+import { isolationScores } from "../../app/static/js/pipeline.js";
+test("isolation forest finds the odd combination, not just the extreme value", () => {
+  // two sensors that always move together; one hour breaks the pattern while
+  // each value alone is ordinary
+  const Z = [];
+  for (let i = 0; i < 400; i++) { const x = Math.sin(i * 0.37) * 1.5; Z.push([x, x + Math.cos(i * 1.7) * 0.05]); }
+  Z.push([1.2, -1.2]);
+  const s = isolationScores(Z);
+  const odd = s.at(-1);
+  assert.ok(odd > 0.6, `odd hour scores high (${odd.toFixed(3)})`);
+  assert.ok(s.filter((x) => x >= odd).length <= 3, "and is among the very top");
+  assert.deepEqual(isolationScores(Z), s, "deterministic");
+  const t0 = Date.now(); isolationScores(Array.from({ length: 24 * 120 }, (_, i) => [Math.sin(i), Math.cos(i * 0.3), i % 7, 0, 1]));
+  assert.ok(Date.now() - t0 < 2000, "four months of hours in under 2 s");
+});

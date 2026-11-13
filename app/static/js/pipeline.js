@@ -2,14 +2,15 @@
 // algorithm, and the openness that lets the sculpture unfold as it lives.
 // Pure functions, no DOM: tested in tests/js/pipeline.test.mjs.
 //
-// Same data, three readings of it (the multiplicity Miguel and Florian
+// Same data, four readings of it (the multiplicity Miguel and Florian
 // asked for — each algorithm makes its own shape):
+//   som       where today lives on a self-organising map of the room's states
 //   pca       the room's main directions: where today sits along the first
 //             three, and how much today moves along them
 //   clusters  kinds of hours (k-means, 3): today's share of each kind, and
 //             the whole history's share
 //   extremes  how unusual today is per channel (percentile in its own
-//             history), plus overall novelty
+//             history), plus overall novelty (isolation forest)
 // A pose is 6 values in [0,1]; value k drives servo k. What the body gets is
 // pose × openness, so it starts closed and opens as data accumulates.
 
@@ -17,9 +18,9 @@ import { CHANNELS } from "./protocol.js";
 
 export const ALGORITHMS = {
   som:      { label: "SOM", about: "A self-organising map lays every hour since the opening out on a map of the room's states, learning by itself with no examples. Where today lives on that map, how widely it wanders, how familiar or new it is. The map grows from the last run's, so it weathers slowly instead of starting over." },
-  pca:      { label: "Directions", about: "Where today sits along the room's three main directions of change, and how much it moves along them (PCA)." },
-  clusters: { label: "Kinds of hours", about: "The room's hours fall into three kinds (k-means). How much of today, and of all time, is each kind." },
-  extremes: { label: "Unusual", about: "How high today is in each sensor's own history, plus how new today is compared to everything before." },
+  pca:      { label: "PCA", about: "Principal components: where today sits along the room's three main directions of change, and how much it moves along them." },
+  clusters: { label: "k-means", about: "The room's hours fall into three kinds (quiet · in between · busy). How much of today, and of all time, is each kind." },
+  extremes: { label: "IForest", about: "Isolation forest: how high today is in each sensor's own history (servos 1–5), and how easily today's hours are set apart from all the others, sensors together (servo 6)." },
 };
 export const ALGORITHM_IDS = Object.keys(ALGORITHMS);
 export const WINDOW_H = 12;          // "today" = the last 12 hours
@@ -228,17 +229,59 @@ function extremesPose(Z, X, channels, recent) {
     const col = X.map((r) => r[j]);
     pose.push(percentile(col, mean(recent.map((i) => col[i]))));
   }
-  // novelty: how far today's hours are from every earlier hour
-  const earlier = Z.map((_, i) => i).filter((i) => !recent.includes(i));
-  if (earlier.length < 3) pose.push(0);
+  // novelty: isolation forest over every hour, sensors together. Today's
+  // hours' scores as percentiles among all hours: an ordinary day ≈ 0.5 →
+  // 0, a day whose hours are the easiest to set apart → 1.
+  if (Z.length - recent.length < 3) pose.push(0);
   else {
-    const nn = (i, pool) => Math.sqrt(Math.min(...pool.filter((p) => p !== i).map((p) => dist2(Z[i], Z[p]))));
-    const todayD = mean(recent.map((i) => nn(i, earlier)));
-    const sample = earlier.length > 200 ? earlier.filter((_, i) => i % Math.ceil(earlier.length / 200) === 0) : earlier;
-    const typical = mean(sample.map((i) => nn(i, earlier))) || 1;
-    pose.push(clamp01(1 - Math.exp(-todayD / typical / 2)));
+    const scores = isolationScores(Z);
+    const p = mean(recent.map((i) => percentile(scores, scores[i])));
+    pose.push(clamp01((p - 0.5) * 2));
   }
   return { pose, meta: null };
+}
+
+// Isolation forest (Liu, Ting & Zhou, ICDM 2008): random trees split the
+// hours at random until each is alone; unusual hours are alone sooner.
+// Returns each row's anomaly score s = 2^(−E[path length] / c(ψ)) (≈0.5
+// ordinary, → 1 unusual). Seeded, so the same data gives the same scores.
+const IF_TREES = 100, IF_SAMPLE = 256;
+const cPath = (n) => (n <= 1 ? 0 : 2 * (Math.log(n - 1) + 0.5772156649) - (2 * (n - 1)) / n);
+export function isolationScores(Z, { trees = IF_TREES, sample = IF_SAMPLE, seed = 13 } = {}) {
+  const n = Z.length, d = Z[0]?.length || 0;
+  if (n < 2 || !d) return Z.map(() => 0.5);
+  let a = seed >>> 0;
+  const rand = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const psi = Math.min(sample, n), limit = Math.ceil(Math.log2(psi));
+  const grow = (idx, depth) => {
+    if (depth >= limit || idx.length <= 1) return { size: idx.length };
+    const j = Math.floor(rand() * d);
+    let lo = Infinity, hi = -Infinity;
+    for (const i of idx) { lo = Math.min(lo, Z[i][j]); hi = Math.max(hi, Z[i][j]); }
+    if (hi - lo < 1e-12) return { size: idx.length };
+    const split = lo + rand() * (hi - lo);
+    return { j, split, left: grow(idx.filter((i) => Z[i][j] < split), depth + 1),
+             right: grow(idx.filter((i) => Z[i][j] >= split), depth + 1) };
+  };
+  const path = (node, x, depth) => (node.size !== undefined
+    ? depth + cPath(node.size)
+    : path(x[node.j] < node.split ? node.left : node.right, x, depth + 1));
+  const forest = [];
+  for (let t = 0; t < trees; t++) {
+    const all = Array.from({ length: n }, (_, i) => i);
+    for (let i = 0; i < psi; i++) {                     // sample without replacement
+      const k = i + Math.floor(rand() * (n - i));
+      [all[i], all[k]] = [all[k], all[i]];
+    }
+    forest.push(grow(all.slice(0, psi), 0));
+  }
+  const c = cPath(psi) || 1;
+  return Z.map((x) => 2 ** (-mean(forest.map((tree) => path(tree, x, 0))) / c));
 }
 
 // --------------------------------------------------------------- SOM

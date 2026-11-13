@@ -49,11 +49,13 @@ sculpture at 12 hours a minute.
 - **Readings of the data** — same data, different shapes:
   *SOM* (the default: a self-organising map lays every hour the room
   has had on an 8×8 map of similar hours; the shape says where today sits on
-  it, how widely it wanders, how new it is), *Directions* (PCA: where today
-  sits along the room's main directions of change, and how much it moves),
-  *Kinds of hours* (k-means: today's and all time's share of each kind),
-  *Unusual* (each sensor's percentile in its own history, plus how new today
-  is). The highlighted one moves the sculpture; click another to switch.
+  it, how widely it wanders, how new it is), *PCA* (where today sits along
+  the room's main directions of change, and how much it moves), *k-means*
+  (today's and all time's share of three kinds of hours: quiet · in between
+  · busy), *IForest* (each sensor's percentile in its own history, plus an
+  isolation forest's verdict on how easily today's hours are set apart from
+  all the others — the unusual combinations no single sensor shows). The
+  highlighted one moves the sculpture; click another to switch.
 - **MLP**: your own mapping. Click **Teach…**, pick a moment on the
   history slider, shape the twin with the six sliders (*Try on sculpture*
   shows it on the real body), then **Teach this moment**. After two or more
