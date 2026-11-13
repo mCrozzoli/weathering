@@ -15,7 +15,7 @@ import { FakeHub } from "./fakehub.js";
 import { BrowserShow } from "./store.js";
 import { csvToReading, formatTime } from "./protocol.js";
 
-export const DEFAULTS = { run_times: ["06:00", "18:00"], driving: "pca", show_days: 14, glide_s: 60 };
+export const DEFAULTS = { run_times: ["06:00", "18:00"], driving: "som", show_days: 14, glide_s: 60, examples: [] };
 const BAUD = 115200;
 
 // --------------------------------------------------------------- local

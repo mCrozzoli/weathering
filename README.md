@@ -2,8 +2,8 @@
 
 A data sculpture that unfolds as it lives a room. A small box of sensors
 reads the room's air, light and sound every few minutes. Twice a day
-everything gathered since the opening is read again, by three different
-algorithms, and the sculpture — six servos folding a Jessen's icosahedron —
+everything gathered since the opening is read again, by four different
+algorithms (or by a mapping you teach it), and the sculpture — six servos folding a Jessen's icosahedron —
 takes the shape that reading gives. It starts closed; it opens as the show
 lives.
 
@@ -46,12 +46,21 @@ sculpture at 12 hours a minute.
 - **The rings**: one ring per day, one arc per hour, coloured by the kind of
   hour the latest run found (quiet · in between · busy). Every run reads the
   whole past again, so the past can change colour.
-- **Three readings of the data** — same data, three shapes:
-  *Directions* (PCA: where today sits along the room's main directions of
-  change, and how much it moves), *Kinds of hours* (k-means: today's and
-  all time's share of each kind), *Unusual* (each sensor's percentile in its
-  own history, plus how new today is). The highlighted one moves the
-  sculpture; click another to switch.
+- **Readings of the data** — same data, different shapes:
+  *Room map* (the default: a self-organising map lays every hour the room
+  has had on an 8×8 map of similar hours; the shape says where today sits on
+  it, how widely it wanders, how new it is), *Directions* (PCA: where today
+  sits along the room's main directions of change, and how much it moves),
+  *Kinds of hours* (k-means: today's and all time's share of each kind),
+  *Unusual* (each sensor's percentile in its own history, plus how new today
+  is). The highlighted one moves the sculpture; click another to switch.
+- **Taught**: your own mapping. Click **Teach…**, pick a moment on the
+  history slider, shape the twin with the six sliders (*Try on sculpture*
+  shows it on the real body), then **Teach this moment**. After two or more
+  moments a small network learns from them and gives a shape for every
+  moment — slide through the history to preview it before clicking the
+  *Taught* card to let it move the sculpture. Taught shapes are kept with
+  the show; × forgets one.
 - **Openness**: how far the sculpture may open — mostly how long the show
   has lived, partly how much the room has moved. Closed at the start.
 - **History**: slide back through every run; *Show on sculpture* makes the
@@ -99,7 +108,8 @@ without it a simpler measure stands in. Tune on the real panels with
   Items; no sleep.
 
 The show on disk is three plain files: `readings.csv` (every reading),
-`runs.jsonl` (every run, with all three poses), `show.json` (settings).
+`runs.jsonl` (every run, with every reading's pose), `show.json` (settings
+and taught shapes).
 Online, the same lives in the browser; *⚙ → Export data* saves it.
 
 ## Two ways to run
@@ -125,7 +135,8 @@ tools/build_firmware.sh              # rebuild app/static/firmware/ after editin
   radio packet). Change it first, then both sides.
 - `app/` — local app (Python, stdlib + pyserial); `app/static/` — the page
   (= the GitHub Pages site, plain ES modules, no build step).
-- `app/static/js/pipeline.js` — the twelve-hour run; `twin.js` — the twin's
+- `app/static/js/pipeline.js` — the twelve-hour run; `mlp.js` — the taught
+  mapping; `twin.js` — the twin's
   geometry; `room.js` / `fakehub.js` — the pretend room and hub (Python
   twins in `sim/`).
 - `firmware/` — the three ESP32 sketches (Arduino core 2.0.14, no extra
@@ -136,5 +147,4 @@ Every push to `main` runs the tests on GitHub and publishes `app/static`.
 ## Next
 
 The sound needs calibrating on the real panels once the contact mics are
-in (gains, the touch threshold, CoFlo's threshold). Learned mappings (teach a few data-state ↔ shape pairs, let a small network
-find the rest) are planned. See [CREDITS.md](CREDITS.md) for who and what.
+in (gains, the touch threshold, CoFlo's threshold). See [CREDITS.md](CREDITS.md) for who and what.

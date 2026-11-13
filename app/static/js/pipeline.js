@@ -16,6 +16,7 @@
 import { CHANNELS } from "./protocol.js";
 
 export const ALGORITHMS = {
+  som:      { label: "Room map", about: "A self-organising map lays every hour since the opening out on a map of the room's states, learning by itself with no examples. Where today lives on that map, how widely it wanders, how familiar or new it is. The map grows from the last run's, so it weathers slowly instead of starting over." },
   pca:      { label: "Directions", about: "Where today sits along the room's three main directions of change, and how much it moves along them (PCA)." },
   clusters: { label: "Kinds of hours", about: "The room's hours fall into three kinds (k-means). How much of today, and of all time, is each kind." },
   extremes: { label: "Unusual", about: "How high today is in each sensor's own history, plus how new today is compared to everything before." },
@@ -240,6 +241,92 @@ function extremesPose(Z, X, channels, recent) {
   return { pose, meta: null };
 }
 
+// --------------------------------------------------------------- SOM
+// A self-organising map (Kohonen): an 8×8 grid of prototype room-states,
+// trained on every hour so far. Unsupervised: no examples, the map
+// arranges itself so neighbouring cells hold similar hours. It starts from
+// the previous run's map (in sensor units, re-standardised), so it reshapes
+// slowly; the very first map is laid along the two main directions (PCA),
+// so it is deterministic. Pose:
+//   a0, a1  where today lives on the map (mean cell, column and row)
+//   a2      how widely today wanders across the map
+//   a3      how unfamiliar today is (fit error, against all hours)
+//   a4      how many different cells today visits
+//   a5      how well-trodden today's cells are (visits so far)
+export const SOM_SIZE = 8;
+
+function somTrain(Z, init, { epochs, radius0, rate0 }) {
+  const n = SOM_SIZE, W = init.map((w) => w.slice());
+  const pos = W.map((_, k) => [k % n, Math.floor(k / n)]);
+  const total = epochs * Z.length;
+  let step = 0;
+  for (let e = 0; e < epochs; e++) {
+    for (let i = 0; i < Z.length; i++, step++) {
+      const x = Z[(i * 7919 + e * 104729) % Z.length];   // a fixed, spread-out order
+      const f = step / total;
+      const radius = Math.max(0.6, radius0 * (1 - f));
+      const rate = rate0 * (1 - f) + 0.01;
+      let b = 0, bd = Infinity;
+      for (let k = 0; k < W.length; k++) { const d = dist2(x, W[k]); if (d < bd) { bd = d; b = k; } }
+      for (let k = 0; k < W.length; k++) {
+        const g2 = (pos[k][0] - pos[b][0]) ** 2 + (pos[k][1] - pos[b][1]) ** 2;
+        const h = Math.exp(-g2 / (2 * radius * radius));
+        if (h < 0.01) continue;
+        for (let j = 0; j < x.length; j++) W[k][j] += rate * h * (x[j] - W[k][j]);
+      }
+    }
+  }
+  return W;
+}
+
+function somInitPca(Z) {
+  const d = Z[0].length;
+  const C = Array.from({ length: d }, (_, i) => Array.from({ length: d }, (_, j) => Z.reduce((s, r) => s + r[i] * r[j], 0) / Z.length));
+  const e = eigSym(C);
+  const v1 = e[0].vector, v2 = (e[1] || e[0]).vector;
+  const s1 = Math.sqrt(Math.max(1e-6, e[0].value)), s2 = Math.sqrt(Math.max(1e-6, (e[1] || e[0]).value));
+  const n = SOM_SIZE, W = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const a = ((c / (n - 1)) * 2 - 1) * 2 * s1, b = ((r / (n - 1)) * 2 - 1) * 2 * s2;
+    W.push(v1.map((x, j) => a * x + b * v2[j]));
+  }
+  return W;
+}
+
+function somPose(Z, recent, std0, prev) {
+  const n = SOM_SIZE, d = Z[0].length;
+  const prevW = prev?.weights;
+  let W;
+  if (prevW && prevW.length === n * n && prevW[0].length === d) {
+    // last run's map, in today's standardisation: a gentle fine-tune
+    const init = prevW.map((w) => w.map((x, j) => (x - std0.mu[j]) / std0.sd[j]));
+    W = somTrain(Z, init, { epochs: 3, radius0: 1.5, rate0: 0.08 });
+  } else {
+    W = somTrain(Z, somInitPca(Z), { epochs: 8, radius0: n / 2, rate0: 0.4 });
+  }
+  const bmu = (x) => { let b = 0, bd = Infinity; for (let k = 0; k < W.length; k++) { const dd = dist2(x, W[k]); if (dd < bd) { bd = dd; b = k; } } return [b, Math.sqrt(bd)]; };
+  const all = Z.map(bmu);
+  const hits = new Array(n * n).fill(0);
+  all.forEach(([b]) => hits[b]++);
+  const maxHits = Math.max(...hits) || 1;
+  const today = recent.map((i) => all[i]);
+  const cols = today.map(([b]) => b % n), rows = today.map(([b]) => Math.floor(b / n));
+  const spread = Math.sqrt(std(cols) ** 2 + std(rows) ** 2) / (n / 2);
+  const errs = all.map(([, e]) => e);
+  const pose = [
+    mean(cols) / (n - 1),
+    mean(rows) / (n - 1),
+    clamp01(spread * 1.5),
+    percentile(errs, mean(today.map(([, e]) => e))),
+    clamp01(new Set(today.map(([b]) => b)).size / Math.min(12, recent.length + 1) ),
+    clamp01(mean(today.map(([b]) => hits[b] / maxHits))),
+  ];
+  return {
+    pose,
+    meta: { weights: W.map((w) => w.map((x, j) => +(x * std0.sd[j] + std0.mu[j]).toFixed(3))) },
+  };
+}
+
 // ----------------------------------------------------------- openness
 // The sculpture starts closed and opens with lived data: mostly how long it
 // has lived (log-scaled against the planned show length), partly how much
@@ -253,7 +340,7 @@ export function openness(hoursLived, motion, showDays = 14) {
 // ------------------------------------------------------------- the run
 // readings: [{unix, co2, t, …}] sorted or not; nowUnix: when the run happens;
 // prev: the previous run record (for alignment); opts.showDays.
-export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, driving = "pca" } = {}) {
+export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, driving = "som" } = {}) {
   const usable = readings.filter((r) => r.unix <= nowUnix);
   const { hours, channels, X } = hourly(usable);
   const closed = new Array(6).fill(0);
@@ -270,6 +357,7 @@ export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, dri
   const pca = pcaPose(Z, recent, prev?.meta?.pca);
   const cl = clustersPose(Z, X, recent, prev?.meta?.clusters, { mu, sd });
   const ex = extremesPose(Z, X, channels, recent);
+  const so = somPose(Z, recent, { mu, sd }, prev?.meta?.som);
 
   let motion = 0;
   for (let i = 1; i < Z.length; i++) motion += Math.sqrt(dist2(Z[i], Z[i - 1]) / Z[i].length);
@@ -278,15 +366,16 @@ export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, dri
     pca: pca.pose.map((x) => +clamp01(x).toFixed(3)),
     clusters: cl.pose.map((x) => +clamp01(x).toFixed(3)),
     extremes: ex.pose.map((x) => +clamp01(x).toFixed(3)),
+    som: so.pose.map((x) => +clamp01(x).toFixed(3)),
   };
-  const drive = poses[driving] ? driving : "pca";
+  const drive = poses[driving] ? driving : "som";
   return {
     ...base,
     driving: drive,
     openness: +open.toFixed(3),
     poses,
     sent: poses[drive].map((a) => +(a * open).toFixed(3)),
-    meta: { pca: pca.meta, clusters: cl.meta, z: { mu: mu.map((x) => +x.toFixed(4)), sd: sd.map((x) => +x.toFixed(4)) } },
+    meta: { pca: pca.meta, clusters: cl.meta, som: so.meta, z: { mu: mu.map((x) => +x.toFixed(4)), sd: sd.map((x) => +x.toFixed(4)) } },
   };
 }
 
@@ -357,4 +446,12 @@ export function soundContext(run, labels) {
     quiet: c[0] ?? 0.33, between: c[1] ?? 0.34, busy: c[2] ?? 0.33,
     novelty: run?.poses?.extremes?.[5] ?? 0,
   };
+}
+
+// ------------------------------------------------------------ taught
+// The data state a taught mapping learns from: the four readings of a run
+// (24 numbers). Examples pair it with a shape shaped on the twin.
+export const TAUGHT_INPUTS = ["som", "pca", "clusters", "extremes"];
+export function dataState(run) {
+  return TAUGHT_INPUTS.flatMap((id) => (run?.poses?.[id] || new Array(6).fill(0)).slice(0, 6));
 }

@@ -78,6 +78,18 @@ def test_show_keeps_everything(tmp_path):
     assert store.list_shows(tmp_path)[0]["readings"] == 1
 
 
+def test_taught_shapes_are_kept(tmp_path):
+    s = store.Show("teach", tmp_path)
+    assert s.meta()["driving"] == "som" and s.meta()["examples"] == []
+    ex = [{"run": 1, "unix": 100, "input": [0.1] * 24, "output": [0.5] * 6}]
+    s.update_meta({"examples": ex, "driving": "taught"})
+    again = store.Show("teach", tmp_path).meta()
+    assert again["examples"] == ex and again["driving"] == "taught"
+    s.update_meta({"examples": "not a list"})
+    s.update_meta({"examples": ex * 65})                 # too many: refused
+    assert store.Show("teach", tmp_path).meta()["examples"] == ex
+
+
 # ---------------------------------------------------- the whole chain
 def _get(url):
     with urllib.request.urlopen(url, timeout=5) as r:

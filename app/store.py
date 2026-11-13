@@ -23,7 +23,8 @@ ROOT = Path(os.environ.get("WEATHERING_HOME", Path.home() / ".weathering")) / "s
 
 DEFAULT_SETTINGS = {
     "run_times": ["06:00", "18:00"],
-    "driving": "pca",
+    "driving": "som",
+    "examples": [],
     "show_days": 14,
     "glide_s": 60,
 }
@@ -73,6 +74,8 @@ class Show:
             for k, v in changes.items():
                 if k in ("run_times", "driving", "show_days", "glide_s", "notes"):
                     m[k] = v
+                elif k == "examples" and isinstance(v, list) and len(v) <= 64:
+                    m[k] = v                      # taught shapes: [{run, input, output}]
             self._write_meta(m)
             return m
 

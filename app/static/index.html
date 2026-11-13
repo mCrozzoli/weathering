@@ -56,12 +56,24 @@
     <aside>
       <h3>The room now</h3>
       <div id="room"></div>
-      <h3>Three readings of the data <button class="quiet" id="algoHelp" title="What are these?">?</button></h3>
+      <h3>Readings of the data <button class="quiet" id="algoHelp" title="What are these?">?</button></h3>
       <div class="algos" id="algos"></div>
       <div class="drives" id="drives">The highlighted one moves the sculpture. Click another to switch.</div>
+      <div id="teach" hidden>
+        <h3>Teach a shape</h3>
+        <p class="dim" id="teachWhen"></p>
+        <div id="teachSliders"></div>
+        <div class="row">
+          <button id="teachAdd" class="primary">Teach this moment</button>
+          <button id="teachTry">Try on sculpture</button>
+          <button id="teachDone" class="quiet">Done</button>
+        </div>
+        <div id="teachList" class="dim"></div>
+      </div>
       <h3>Sculpture</h3>
       <div class="row">
         <button id="runNow">Run now</button>
+        <button id="teachBtn" title="Teach the sculpture shapes for moments of the data">Teach…</button>
         <button id="touchBtn" hidden title="Knock on the virtual sculpture">Touch</button>
         <span class="dim" id="bodyState"></span>
       </div>
@@ -224,9 +236,10 @@
 </dialog>
 
 <dialog id="helpDlg">
-  <h2>Three readings of the data</h2>
+  <h2>Readings of the data</h2>
   <div id="helpBody"></div>
-  <p class="dim">Every 12 hours each one reads everything gathered since the start and gives six numbers, one per servo. The highlighted one moves the sculpture, scaled by its openness: closed at first, opening as the show lives.</p>
+  <p><b>Taught</b><br><span class="dim">Your own mapping, learned from examples. Pick a moment on the history slider, open <b>Teach…</b>, shape the sculpture with the six sliders and click <b>Teach this moment</b>. After two or more, a small neural network (an MLP, learning by example as in Wekinator) gives a shape for every moment, taught or not. Slide through the history to preview it before letting it move the sculpture.</span></p>
+  <p class="dim">Every 12 hours each reading looks at everything gathered since the opening and gives six numbers, one per servo. The highlighted one moves the sculpture, scaled by its openness: closed at first, opening as the show lives.</p>
   <div class="row"><button id="helpClose" class="quiet">Close</button></div>
 </dialog>
 

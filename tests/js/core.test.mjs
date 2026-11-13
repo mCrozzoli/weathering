@@ -222,3 +222,50 @@ test("each run carries a sound context, not sensor values", () => {
   const empty = soundContext(null, null);
   assert.equal(empty.openness, 0);
 });
+
+// ------------------------------------------------------- SOM + taught
+import { MLP, trainTaught } from "../../app/static/js/mlp.js";
+import { dataState, ALGORITHMS } from "../../app/static/js/pipeline.js";
+
+test("the room map (SOM) is the default reading and stays in [0,1]", () => {
+  const rs = simulate(3);
+  const run = runPipeline(rs, rs.at(-1).unix);
+  assert.equal(run.driving, "som");
+  assert.equal(Object.keys(ALGORITHMS)[0], "som");
+  assert.equal(run.poses.som.length, 6);
+  for (const x of run.poses.som) assert.ok(x >= 0 && x <= 1);
+  assert.equal(run.meta.som.weights.length, 64);
+  assert.deepEqual(runPipeline(rs, rs.at(-1).unix).poses.som, run.poses.som, "deterministic");
+});
+
+test("the room map weathers: it grows from the last run's map", () => {
+  const rs = simulate(7);
+  const t1 = 1_790_000_000 + 6 * DAY, t2 = t1 + 3600;
+  const r1 = runPipeline(rs, t1);
+  const warm = runPipeline(rs, t2, r1);
+  // warm start keeps the map: its prototypes stay close to the last run's
+  const shift = warm.meta.som.weights.reduce((s, w, k) => s + Math.abs(w[0] - r1.meta.som.weights[k][0]), 0) / 64;
+  assert.ok(shift < 60, `prototypes jumped (mean CO2 shift ${shift.toFixed(1)} ppm)`);
+  // an hour later, the room's place on the map has barely moved
+  const d = warm.poses.som.slice(0, 2).map((x, i) => Math.abs(x - r1.poses.som[i]));
+  assert.ok(Math.max(...d) < 0.35, `today's place on the map jumped: ${d}`);
+});
+
+test("a taught mapping reproduces its examples and fills in between", () => {
+  const rs = simulate(5);
+  let prev = null; const runs = [];
+  for (let k = 2; k <= 5; k++) { prev = runPipeline(rs, 1_790_000_000 + k * DAY, prev); runs.push(prev); }
+  const shapes = [[0.1, 0.1, 0.1, 0.1, 0.1, 0.1], [0.9, 0.8, 0.9, 0.8, 0.9, 0.8], [0.2, 0.9, 0.2, 0.9, 0.2, 0.9]];
+  const examples = shapes.map((output, i) => ({ input: dataState(runs[i]), output }));
+  const t = trainTaught(examples);
+  assert.ok(t.err < 0.005, `didn't learn its examples: ${t.err}`);
+  examples.forEach((e) => {
+    const y = t.net.predict(e.input);
+    y.forEach((v, k) => assert.ok(Math.abs(v - e.output[k]) < 0.12, `example off by ${Math.abs(v - e.output[k])}`));
+  });
+  const untaught = t.net.predict(dataState(runs[3]));
+  assert.equal(untaught.length, 6);
+  for (const v of untaught) assert.ok(v >= 0 && v <= 1);
+  assert.equal(trainTaught([examples[0]]), null, "one example isn't a mapping");
+  assert.deepEqual(trainTaught(examples).net.predict(examples[0].input), t.net.predict(examples[0].input), "deterministic");
+});

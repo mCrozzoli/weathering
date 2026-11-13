@@ -2,7 +2,8 @@
 // the 12-hour runs and the drawing together.
 
 import { parseLine, formatPose, CHANNELS, CHANNEL_INFO, SERVOS } from "./protocol.js";
-import { runPipeline, labelHours, dueRun, nextRun, soundContext, ALGORITHMS, ALGORITHM_IDS } from "./pipeline.js";
+import { runPipeline, labelHours, dueRun, nextRun, soundContext, dataState, ALGORITHMS, ALGORITHM_IDS } from "./pipeline.js";
+import { trainTaught, MIN_EXAMPLES } from "./mlp.js";
 import { drawTwin } from "./twin.js";
 import { LocalBackend, SerialBackend, DemoBackend } from "./backends.js";
 import { exportFiles } from "./store.js";
@@ -12,6 +13,9 @@ const $ = (id) => document.getElementById(id);
 const KIND_RGB = [[77, 147, 166], [191, 170, 110], [176, 74, 104]];
 const NEUTRAL = [120, 134, 146];
 const NODE_STALE_S = 30;
+// the cards: the four readings, then the taught mapping
+const CARDS = { ...ALGORITHMS, taught: { label: "Taught", about: "Your own mapping, learned from shapes you teach on the twin (Teach…)." } };
+const CARD_IDS = Object.keys(CARDS);
 
 const S = {
   backend: null, local: false,
@@ -21,6 +25,8 @@ const S = {
   labels: new Map(), labelsRun: -1,
   view: null,                   // history: index into runs, or null = now
   running: false,
+  taught: null,                 // {net, err} trained on meta.examples, or null
+  teaching: false, teachPose: new Array(6).fill(0.5), tried: false,
 };
 window.weathering = S;          // for debugging in the console
 
@@ -51,6 +57,8 @@ async function use(backend) {
   S.nodes = {};
   S.body = null;
   S.sentPose = S.runs.at(-1)?.sent || null;
+  recomputeTaught();
+  closeTeach(false);
   S.seq = (S.runs.length + 1) * 10;
   for (const line of show.recent || []) handleLine(line, true);
   $("demoBanner").hidden = backend.kind !== "demo";
@@ -127,6 +135,13 @@ async function doRun(at, manual) {
     const run = runPipeline(S.readings, at, prev, { showDays: S.meta.show_days, driving: S.meta.driving });
     run.run = (prev?.run || 0) + 1;
     if (manual) run.manual = true;
+    if (S.taught) {
+      run.poses.taught = S.taught.net.predict(dataState(run)).map((x) => +x.toFixed(3));
+      if (S.meta.driving === "taught") {
+        run.driving = "taught";
+        run.sent = run.poses.taught.map((a) => +(a * run.openness).toFixed(3));
+      }
+    }
     run.context = soundContext(run, labelHours(S.readings, run));
     S.runs.push(run);
     await S.backend.addRun(run);
@@ -173,6 +188,7 @@ function frame(t) {
 }
 
 function mainPose() {
+  if (S.teaching) return S.teachPose;
   if (S.view !== null) return S.runs[S.view]?.sent || new Array(SERVOS).fill(0);
   return S.body || S.sentPose || new Array(SERVOS).fill(0);
 }
@@ -334,12 +350,13 @@ function renderAlgos() {
   const run = S.view !== null ? S.runs[S.view] : S.runs.at(-1);
   const box = $("algos");
   if (!box.children.length) {
-    box.innerHTML = ALGORITHM_IDS.map((id) => `<button class="algo" data-id="${id}" title="${ALGORITHMS[id].about}"><canvas></canvas><span>${ALGORITHMS[id].label}</span></button>`).join("");
+    box.innerHTML = CARD_IDS.map((id) => `<button class="algo" data-id="${id}" title="${CARDS[id].about}"><canvas></canvas><span>${CARDS[id].label}</span></button>`).join("");
     for (const el of box.children) el.onclick = () => setDriving(el.dataset.id);
   }
   for (const el of box.children) {
     const id = el.dataset.id;
     el.classList.toggle("on", id === (run?.driving || S.meta.driving));
+    el.classList.toggle("off", id === "taught" && !S.taught);
     const cv = el.querySelector("canvas");
     const w = cv.clientWidth, dpr = devicePixelRatio || 1;
     cv.width = w * dpr; cv.height = w * dpr;
@@ -351,15 +368,16 @@ function renderAlgos() {
 
 async function setDriving(id) {
   if (S.view !== null) return toast("Back to now first");
+  if (id === "taught" && !S.taught) { openTeach(); return toast(`Teach at least ${MIN_EXAMPLES} shapes first`); }
   S.meta.driving = id;
   await S.backend.saveSettings({ driving: id });
   const run = S.runs.at(-1);
   if (run) {
     run.driving = id;
-    sendPose(run.poses[id].map((a) => +(a * run.openness).toFixed(3)));
+    if (run.poses[id]) sendPose(run.poses[id].map((a) => +(a * run.openness).toFixed(3)));
   }
   renderAlgos();
-  toast(`${ALGORITHMS[id].label} moves the sculpture now`);
+  toast(`${CARDS[id].label} moves the sculpture now`);
 }
 
 function renderHistory() {
@@ -411,6 +429,7 @@ function wireUi() {
     const v = Number($("hist").value);
     S.view = v >= S.runs.length ? null : v;
     renderHistory();
+    if (S.teaching) renderTeach();
   };
   $("histNow").onclick = () => {
     S.view = null;
@@ -420,10 +439,14 @@ function wireUi() {
   };
   $("histToBody").onclick = () => { const r = S.runs[S.view]; if (r) { sendPose(r.sent); toast(`The sculpture takes run ${r.run}'s shape`); } };
   $("algoHelp").onclick = () => {
-    $("helpBody").innerHTML = ALGORITHM_IDS.map((id) => `<p><b>${ALGORITHMS[id].label}</b><br><span class="dim">${ALGORITHMS[id].about}</span></p>`).join("");
+    $("helpBody").innerHTML = ALGORITHM_IDS.map((id) => `<p><b>${ALGORITHMS[id].label}</b>${id === "som" ? " <span class=\"dim\">(default)</span>" : ""}<br><span class="dim">${ALGORITHMS[id].about}</span></p>`).join("");
     $("helpDlg").showModal();
   };
   $("helpClose").onclick = () => $("helpDlg").close();
+  $("teachBtn").onclick = () => (S.teaching ? closeTeach(true) : openTeach());
+  $("teachDone").onclick = () => closeTeach(true);
+  $("teachAdd").onclick = teachMoment;
+  $("teachTry").onclick = () => { S.tried = true; sendPose(S.teachPose); toast("The sculpture takes this shape"); };
   addEventListener("resize", () => { renderRoom(); renderAlgos(); });
   wireBoards();
 }
@@ -496,6 +519,89 @@ function toast(text) {
   t.classList.add("on");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove("on"), 2600);
+}
+
+// ================================================================ teach
+// The twin is the teaching surface: pick a moment (the history slider),
+// shape the sculpture with six sliders, teach. The taught mapping (mlp.js)
+// learns from those pairs and gives a shape for every moment.
+function recomputeTaught() {
+  S.taught = trainTaught(S.meta.examples || []);
+  for (const r of S.runs) {
+    if (S.taught) r.poses.taught = S.taught.net.predict(dataState(r)).map((x) => +x.toFixed(3));
+    else delete r.poses.taught;
+  }
+}
+
+function teachRun() { return S.view !== null ? S.runs[S.view] : S.runs.at(-1); }
+
+function openTeach() {
+  const r = teachRun();
+  if (!r) return toast("Teaching needs a first run");
+  const shape = r.poses.taught || r.poses[r.driving] || r.poses.som || new Array(6).fill(0.5);
+  S.teachPose = shape.map((x) => +x);
+  S.teaching = true;
+  $("teach").hidden = false;
+  $("teachBtn").textContent = "Teaching…";
+  renderTeach();
+}
+
+function closeTeach(restore) {
+  if (restore && S.tried) { const r = S.runs.at(-1); if (r) sendPose(r.sent); }
+  S.teaching = false; S.tried = false;
+  $("teach").hidden = true;
+  $("teachBtn").textContent = "Teach…";
+}
+
+function renderTeach() {
+  const r = teachRun();
+  $("teachWhen").textContent = r ? `For run ${r.run} · ${fmtShort(r.unix)}${S.view === null ? " (now)" : ""}. Shape the sculpture, then teach.` : "";
+  const box = $("teachSliders");
+  if (!box.children.length) {
+    box.innerHTML = Array.from({ length: SERVOS }, (_, k) =>
+      `<label><span>servo ${k + 1}</span><input type="range" min="0" max="1" step="0.01" data-k="${k}"><span class="dim" data-v="${k}"></span></label>`).join("");
+    for (const inp of box.querySelectorAll("input")) {
+      inp.oninput = () => { S.teachPose[+inp.dataset.k] = +inp.value; box.querySelector(`[data-v="${inp.dataset.k}"]`).textContent = (+inp.value).toFixed(2); };
+    }
+  }
+  for (const inp of box.querySelectorAll("input")) {
+    inp.value = S.teachPose[+inp.dataset.k];
+    box.querySelector(`[data-v="${inp.dataset.k}"]`).textContent = (+inp.value).toFixed(2);
+  }
+  renderTeachList();
+}
+
+function renderTeachList() {
+  const ex = S.meta.examples || [];
+  const box = $("teachList");
+  box.innerHTML = ex.length
+    ? `<p>${ex.length} taught${S.taught ? ` · learned, off by ${Math.max(0.1, Math.sqrt(S.taught.err) * 100).toFixed(1)}%` : ` · teach ${MIN_EXAMPLES - ex.length} more`}</p>`
+      + ex.map((e, i) => `<div class="ex"><span>run ${e.run} · ${fmtShort(e.unix)}</span><button class="quiet" data-i="${i}" title="Forget this one">×</button></div>`).join("")
+    : "<p>Nothing taught yet.</p>";
+  for (const b of box.querySelectorAll("button[data-i]")) {
+    b.onclick = async () => {
+      S.meta.examples = ex.filter((_, i) => i !== +b.dataset.i);
+      await saveExamples();
+    };
+  }
+}
+
+async function teachMoment() {
+  const r = teachRun();
+  if (!r) return;
+  const ex = (S.meta.examples || []).filter((e) => e.run !== r.run);   // one shape per moment
+  ex.push({ run: r.run, unix: r.unix, input: dataState(r), output: S.teachPose.map((x) => +x.toFixed(3)) });
+  S.meta.examples = ex;
+  await saveExamples();
+  toast(S.taught ? `Taught: ${ex.length} shapes, the mapping is updated` : `Taught ${ex.length}: one more to make a mapping`);
+}
+
+async function saveExamples() {
+  await S.backend.saveSettings({ examples: S.meta.examples });
+  recomputeTaught();
+  if (S.meta.driving === "taught" && !S.taught) { S.meta.driving = "som"; await S.backend.saveSettings({ driving: "som" }); }
+  renderTeachList();
+  renderAlgos();
 }
 
 // =============================================================== boards

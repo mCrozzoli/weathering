@@ -18,6 +18,12 @@
 - PCA, k-means (with k-means++ seeding: Arthur & Vassilvitskii, 2007),
   Jacobi eigenvalue rotations — textbook methods, implemented in
   `app/static/js/pipeline.js`.
+- Self-organising map: Teuvo Kohonen, *Self-organized formation of
+  topologically correct feature maps*, Biological Cybernetics 43 (1982).
+- Teaching by example (a few input → shape pairs, a small network learns
+  the rest): after Rebecca Fiebrink's **Wekinator** (Fiebrink, Trueman &
+  Cook, NIME 2009). The network and its training (Adam: Kingma & Ba, 2015)
+  are written from scratch in `app/static/js/mlp.js`.
 - **CoFlo**: complexity-controlled feedback gain — Chris Kiefer, Dan
   Overholt, Alice Eldridge, *Shaping the behaviour of feedback instruments
   with complexity-controlled gain dynamics*, NIME 2020. Complexity measured
