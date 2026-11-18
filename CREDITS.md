@@ -2,8 +2,10 @@
 
 ## People
 
-- **Florian Goeschke** — sculpture, concept, the POLYHARPYE resonators and
-  the Jessen's-icosahedron digital twin whose kinematics the twin here uses.
+- **Florian Goeschke** — sculpture (NPTX), concept, the POLYHARPYE
+  resonators; the jitterbug geometry and uneven-pull solver the twin here
+  uses (his "Possibility Space" page), and the Dynamixel wiring and packet
+  code the sculpture's firmware is built on (his TTGO tests).
 - **Miguel Angel Crozzoli** — data, algorithms, software, firmware design.
 - Built with **Claude** (Anthropic) as a co-designing agent.
 
@@ -11,10 +13,15 @@
 
 ## Ideas and methods
 
-- Jessen's orthogonal icosahedron and its jitterbug family (one parameter
-  from octahedron to cuboctahedron): Børge Jessen (1967); the transformation
-  after R. Buckminster Fuller. Vertex coordinates and faces as in Florian's
-  twin (`extras` of the earlier prototype).
+- The jitterbug (vector equilibrium → icosahedron → octahedron):
+  R. Buckminster Fuller, *Synergetics* (1975). NPTX, from *anaptyxe*
+  (unfold), is Florian's four-string version. `app/static/js/twin.js`
+  ports his geometry and position-based solver from three.js to plain
+  canvas.
+- Dynamixel Protocol 2.0 (ROBOTIS): packets, CRC-16 (poly 0x8005) and Sync
+  Write, hand-written after Florian's sketch; no ROBOTIS library is used.
+- Sensirion SCD30 / SCD41 I²C commands from Sensirion's datasheets, written
+  with Wire (no driver library).
 - PCA, k-means (with k-means++ seeding: Arthur & Vassilvitskii, 2007),
   Jacobi eigenvalue rotations — textbook methods, implemented in
   `app/static/js/pipeline.js`.

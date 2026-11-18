@@ -7,9 +7,9 @@
                      on a pseudo-port and connect to it (SPEED × real time)
     --no-browser     don't open the page
     --no-sound       don't start SuperCollider
-    --sound-live     sound with the real sculpture: contact mics in, panel
-                     speakers out, through the sound card (default: a
-                     virtual panel, nothing needed but SuperCollider)
+    --sound-live     sound with the real sculpture: 4 piezos in, 4 exciters
+                     out, through the sound card (default: four
+                     virtual panels, nothing needed but SuperCollider)
 """
 from __future__ import annotations
 

@@ -23,6 +23,7 @@
 <script type="module">
 import { Room } from "../app/static/js/room.js";
 import { runPipeline, labelHours, nextRun } from "../app/static/js/pipeline.js";
+import { toPulls } from "../app/static/js/protocol.js";
 import { drawTwin } from "../app/static/js/twin.js";
 
 const q = new URLSearchParams(location.search);
@@ -101,7 +102,7 @@ g.fillStyle = "#eef3f6"; g.fill();
 const side = [["clusters", 205], ["extremes", W - 205]];
 for (const [id, x] of side) {
   g.save(); g.globalAlpha = 0.34;
-  drawTwin(g, x, CY, 84, run.poses[id], { color: [150, 170, 184], spin: id === "clusters" ? 0.9 : 2.1, tilt: 0.5, glow: false });
+  drawTwin(g, x, CY, 84, toPulls(run.poses[id], 1), { color: [150, 170, 184], spin: id === "clusters" ? 0.9 : 2.1, tilt: 0.5, glow: false });
   g.restore();
 }
 // the sculpture: the driving reading, scaled by how open the show has become

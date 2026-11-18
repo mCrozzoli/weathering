@@ -3,7 +3,7 @@
 //
 //   sensor   reads the room            (firmware/weathering_sensor)
 //   hub      stays on USB at the show  (firmware/weathering_hub)
-//   body     moves the 6 servos        (firmware/weathering_body)
+//   body     winds the 4 strings       (firmware/weathering_body)
 //
 // Plug a board in → identify it (reset + read its boot line + INFO) →
 // install firmware (esptool-js, the flasher ESP Web Tools is built on) →
@@ -16,7 +16,7 @@ const ESPTOOL = "https://unpkg.com/esptool-js@0.5.7/bundle.js";   // loaded only
 export const ROLE_INFO = {
   sensor: { label: "Sensor box", does: "reads the room and sends it by radio", path: "firmware/sensor/" },
   hub: { label: "Hub", does: "stays on USB at the computer", path: "firmware/hub/" },
-  body: { label: "Sculpture", does: "moves the six servos", path: "firmware/body/" },
+  body: { label: "Sculpture", does: "winds the four strings (Dynamixel motors)", path: "firmware/body/" },
 };
 const CONNECT_MS = 25000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -37,12 +37,12 @@ export function describeBoard(lines) {
   return out;
 }
 
-// body servo settings "s0=13,1000,2000,0" ⇄ {pin, min, max, closed}
-export function parseServo(v) {
-  const [pin, min, max, closed] = String(v || "").split(",").map(Number);
-  return { pin: pin ?? 0, min: min || 1000, max: max || 2000, closed: closed ? 1 : 0 };
+// body motor settings from INFO: "m1=<id>,<travel ticks>" → {id, travel}
+export function parseMotor(v) {
+  const [id, travel] = String(v || "").split(",").map(Number);
+  return { id: Number.isFinite(id) ? id : 0, travel: Number.isFinite(travel) ? travel : 0 };
 }
-export const formatServo = (s) => `${s.pin | 0},${s.min | 0},${s.max | 0},${s.closed ? 1 : 0}`;
+export const TICKS_PER_TURN = 4096;
 
 // Open the port, maybe reboot the board, maybe send one line, collect lines.
 async function talk(port, { reset = false, send = null, sendAfterMs = 0, done = () => false, timeoutMs = 2500 }) {
@@ -112,7 +112,17 @@ export async function command(port, text, expect) {
 }
 
 export const saveSettings = (port, settings) => command(port, formatSet(settings), "OK SET");
-export const testServo = (port, k) => command(port, `TEST ${k}`, "OK TEST");
+export const testMotor = (port, k) => command(port, `TEST ${k}`, "OK TEST");      // k: 1..4
+export async function info(port) {
+  const { lines } = await command(port, "INFO", "INFO ");
+  return { ...describeBoard(lines), lines };
+}
+// SCAN: the body pings every Dynamixel id at two speeds (~6 s)
+export async function scan(port) {
+  const lines = await talk(port, { send: "SCAN", sendAfterMs: 200, timeoutMs: 15000,
+    done: (ls) => ls.some((l) => l.startsWith("LOG scan done")) });
+  return lines.filter((l) => l.startsWith("LOG motor id") || l.startsWith("LOG scan done")).map((l) => l.slice(4));
+}
 export const readNow = (port) => command(port, "READ", "R ");
 
 export async function latestVersion(role) {

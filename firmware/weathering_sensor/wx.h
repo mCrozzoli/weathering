@@ -12,11 +12,11 @@
 
 // Printed at boot and in INFO; must match every manifest.json
 // (tests/test_firmware.py). WX_FW_CODE goes in every packet's `fw`.
-#define FW_VERSION "0.1.0"
-#define WX_FW_CODE 0x0001      // major << 8 | minor
+#define FW_VERSION "0.2.0"
+#define WX_FW_CODE 0x0002      // major << 8 | minor
 
 // Bump on any incompatible change to WxPacket: other magics are ignored.
-#define WX_MAGIC 0xA7
+#define WX_MAGIC 0xA8          // 0xA7 was v0.1 (six servos)
 
 enum : uint8_t { WX_ROLE_SENSOR = 1, WX_ROLE_HUB = 2, WX_ROLE_BODY = 3 };
 
@@ -31,7 +31,8 @@ static const char *const WX_CHANNEL_NAMES[WX_CHANNELS] = {"co2", "t", "rh", "lux
 
 #define WX_FLAG_OLD      0x01      // READING: a backlog reading arriving late
 #define WX_FLAG_SIM(i)   (0x02 << (i))
-#define WX_FLAG_MOVING   0x01      // BODYSTATE
+#define WX_FLAG_MOVING   0x01      // BODYSTATE (bits 4-7: motors that answer)
+#define WX_FLAG_HOMED    0x02      // BODYSTATE
 
 #define WX_TEXT_LEN 40
 
@@ -44,11 +45,11 @@ typedef struct __attribute__((packed)) {
   uint16_t fw;         // WX_FW_CODE
   uint16_t seq;        // READING: reading number; ACK: what is acknowledged; POSE: pose number
   uint32_t unix;       // TIME, READING
-  uint8_t  flags;      // READING: bit0 old, bits1..5 simulated mask (co2,t,rh,lux,db); BODYSTATE: bit0 moving
+  uint8_t  flags;      // READING: bit0 old, bits1..5 simulated mask (co2,t,rh,lux,db); BODYSTATE: bit0 moving, bit1 homed, bits4-7 found
   uint8_t  present;    // READING: bit i = value i present
-  float    v[6];       // READING: co2,t,rh,lux,db,(spare); POSE, BODYSTATE: a0..a5
+  float    v[6];       // READING: co2,t,rh,lux,db,(spare); POSE, BODYSTATE: pulls p1..p4 in v[0..3]
   uint16_t glide_s;    // POSE
-  char     text[WX_TEXT_LEN];   // CONFIG: "key=value key=value"; TEST: "k"
+  char     text[WX_TEXT_LEN];   // CONFIG: "key=value key=value"; TEST: "k" (1-4)
 } WxPacket;
 
 static const uint8_t WX_BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};

@@ -111,13 +111,14 @@ def test_hub_commands_and_replies_match_protocol():
         assert f'"{cmd}"' in hub, f"hub doesn't handle {cmd}"
     for reply in (
         '"OK POSE %u\\n"', '"ACK body %u\\n"', '"NAK body %u\\n"', '"NODE %s %s fw %u.%u rssi %d\\n"',
-        '"LOST %s\\n"', '"BODY %.3f %.3f %.3f %.3f %.3f %.3f moving=%d\\n"', '"OK %s\\n"',
+        '"LOST %s\\n"', '"BODY %.3f %.3f %.3f %.3f moving=%d homed=%d found=%u\\n"', '"OK %s\\n"',
     ):
         assert reply in hub, reply
     assert "#define POSE_RETRIES   3" in hub and "#define POSE_RETRY_MS  300" in hub
     assert "OK POSE <seq>" in hub_section and "ACK body <seq>  |  NAK body <seq>" in hub_section
     assert "NODE <role> <mac> fw <version> rssi <dBm>" in hub_section
-    assert "BODY <a0> … <a5> moving=<0|1>" in hub_section
+    assert "BODY <p1> … <p4> moving=<0|1> homed=<0|1> found=<mask>" in hub_section
+    assert "POSE <seq> <p1> <p2> <p3> <p4> <glide_s>" in hub_section
 
 
 def test_reading_line_matches_protocol():
@@ -134,12 +135,16 @@ def test_reading_line_matches_protocol():
 def test_sensor_matches_protocol():
     s = sketch("sensor")
     assert "#define SCD41_ADDR     0x62" in s and "i2c_present(0x23)" in s and "i2c_present(0x5C)" in s
+    assert "#define SCD30_ADDR     0x61" in s and "SCD30** (0x61" in PROTOCOL
+    # channels: default co2,t,rh; the others neither sent nor simulated
+    assert "#define CHANNELS_DEFAULT 0x07" in s and "`channels` (default `co2,t,rh`)" in PROTOCOL
+    assert "if (!(channels & (1 << i))) continue;" in s
     for key, default in (("interval", "300"), ("sda", "21"), ("scl", "22"), ("mic_pin", "34")):
         assert f'"{key}"' in s
         assert re.search(rf'prefs\.get\w+\("{key}", {default}\)', s), key
     assert "wx_parse_long(v, 10, 3600, &iv)" in s
     assert '{"auto", "all", "none"}' in s
-    assert "interval=%u sensors=%s sim=%s" in s
+    assert "interval=%u channels=%s sensors=%s sim=%s" in s
     # backlog: >= 1 day at 300 s, oldest first, dropped only after the ACK
     backlog = int(re.search(r"#define BACKLOG\s+(\d+)", s).group(1))
     assert backlog >= 24 * 3600 // 300
@@ -149,14 +154,25 @@ def test_sensor_matches_protocol():
 
 def test_body_matches_protocol():
     b = sketch("body")
-    assert "Defaults: pins\n13, 12, 14, 27, 26, 25, 1000–2000 µs, closed = 0." in PROTOCOL
-    assert "DEFAULT_PINS[N_SERVOS] = {13, 12, 14, 27, 26, 25}" in b
-    assert "ServoCfg{DEFAULT_PINS[k], 1000, 2000, 0}" in b
-    assert "#define SERVO_HZ       50" in b and "#define STATE_EVERY_MS 2000" in b
-    assert 'prefs.putBytes("pose", target' in b and 'prefs.getBytes("pose", target' in b
-    assert "pose=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f" in b and '" s%d=%u,%u,%u,%u"' in b
-    for cmd in ('"POSE"', '"TEST"', '"RELAX"', "case WX_POSE:", "case WX_TEST:", "case WX_RELAX:",
+    body = PROTOCOL.split("## Body board")[1].split("## Radio")[0]
+    # wiring and bus as in Florian's proven TTGO sketch
+    assert "#define DXL_RX         33" in b and "#define DXL_TX         32" in b and "#define DXL_BAUD       57600" in b
+    assert "GPIO 32" in body and "57600" in body and "extended position mode" in body
+    assert "crc = (crc & 0x8000) ? (crc << 1) ^ 0x8005" in b and "buf[i + 7] == 0x55" in b
+    # calibration keys documented and handled
+    for key in ("jog", "slack", "closed", "ids", "setid", "speed", "group"):
+        assert f"`{key}=" in body, key
+        assert f'strcmp(k, "{key}") == 0' in b, key
+    for cmd in ('"POSE"', '"TEST"', '"RELAX"', '"SCAN"', "case WX_POSE:", "case WX_TEST:", "case WX_RELAX:",
                 "case WX_CONFIG:", "WX_BODYSTATE", "WX_ACK"):
         assert cmd in b, cmd
-    # 0 = closed end, 1 = open end
-    assert "c->closed ? c->max_us - a * span : c->min_us + a * span" in b
+    # safety: goals clamped to the calibrated travel, never "power-up = slack"
+    assert "pull = constrain(pull, PULL_LO, PULL_HI);" in b
+    assert "#define PULL_LO        -0.02f" in b and "#define PULL_HI        1.02f" in b
+    assert "zero − 2 % … zero + 102 % of travel" in body
+    assert "if (!all_homed())" in b.split("static bool start_pose")[1].split("}")[0]
+    assert "#define HOME_TOL       256" in b and "within 1/16 turn" in body
+    assert "startPos" not in b                                    # Florian's power-up zero is gone
+    assert "pose=%.3f,%.3f,%.3f,%.3f" in b and '" m%d=%u,%ld"' in b
+    assert "#define STATE_EVERY_MS 2000" in b
+    assert "WX_FLAG_HOMED" in b and "#define WX_FLAG_HOMED    0x02" in header()

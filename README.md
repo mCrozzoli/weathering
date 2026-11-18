@@ -1,11 +1,12 @@
 # Weathering
 
 A data sculpture that unfolds as it lives a room. A small box of sensors
-reads the room's air, light and sound every few minutes. Twice a day
-everything gathered since the opening is read again, by four different
-algorithms (or by a mapping you teach it), and the sculpture — six servos folding a Jessen's icosahedron —
-takes the shape that reading gives. It starts closed; it opens as the show
-lives.
+reads the room's air (CO₂, temperature, humidity) every few minutes. Twice
+a day everything gathered since the opening is read again, by four
+different algorithms (or by a mapping you teach it), and the sculpture —
+**NPTX**, a Fuller jitterbug whose four strings are wound by four motors
+from the tetrahedron at its centre — takes the shape that reading gives.
+It starts closed (octahedron); it opens as the show lives.
 
 By **Florian Goeschke** (sculpture) and **Miguel Angel Crozzoli** (data,
 software). Open it online: **<https://mcrozzoli.github.io/weathering/>**
@@ -13,27 +14,33 @@ software). Open it online: **<https://mcrozzoli.github.io/weathering/>**
 
 ```
  Sensor box ──radio──▶ Hub ══USB══ Computer (this app: keeps the show, runs the data)
- ESP32 + CO₂,          ESP32         │
- light, sound            │           └─ SuperCollider ─ sound card ─▶ contact mics + panel speakers
-                         └──radio──▶ Sculpture: ESP32 + 6 servos
+ ESP32 + SCD30         ESP32         │
+ (CO₂, T, RH)            │           └─ SuperCollider ─ 4-in/4-out sound card ─▶ 4 piezos + 4 exciters
+                         └──radio──▶ Sculpture: ESP32 + 4 Dynamixel motors winding the strings
 ```
+
+**Step by step, from nothing to a running installation:**
+[docs/GUIDE.pdf](docs/GUIDE.pdf).
 
 ## Start (Florian)
 
 1. **Install the boards once.** Open the app, go to **Boards**, plug each
    ESP32 in by USB, click **Connect a board…** and install its part:
-   *Sensor box*, *Hub*, *Sculpture*. Set the servos' pins, range and closed
-   end there, and **Test** each one. Wiring and parts:
+   *Sensor box*, *Hub*, *Sculpture*. Wiring and parts:
    [docs/HARDWARE.md](docs/HARDWARE.md).
-2. **Power the sensor box and the sculpture.** They find the hub by
-   themselves. The servos need their own 5–6 V supply.
-3. **Plug the hub in and double-click `Weathering.command`.** The page
+2. **Calibrate the sculpture once** (its ESP32 on USB, motors on 12 V):
+   **Boards → Sculpture motors** — find the motors, *Set slack here* with
+   the structure open, then wind each string in and *Set closed*.
+3. **Power the sensor box and the sculpture.** They find the hub by
+   themselves.
+4. **Plug the hub in and double-click `Weathering.command`.** The page
    opens and connects; the dots in the top bar turn green (hub, sensor,
    sculpture). The first time it installs one small thing (pyserial,
    ~15 s).
-4. **Leave it.** A reading every 5 minutes, saved at once. At 06:00 and
-   18:00 the data is read again from the start and the sculpture moves —
-   slowly — to its new shape.
+5. **Leave it.** A reading every 5 minutes, saved at once. At 06:00 and
+   18:00 the data is read again from the start and the strings let the
+   sculpture open — slowly — to its new shape. (⚙ → *Moves: live* makes it
+   also follow every reading in between.)
 
 No hardware yet? Double-click **`Weathering demo.command`** (or open the
 page online and it starts the demo by itself): a pretend room and
@@ -41,12 +48,16 @@ sculpture at 12 hours a minute.
 
 ## What you see
 
-- **The twin**: the sculpture as it is now. Each servo opens one of the six
-  pairs of corners that meet when the body is closed.
+- **The twin**: the sculpture as it is now — Florian's NPTX: eight rigid
+  triangles, four of them pulled by strings from the motors at the centre
+  (M1 red, M2 orange, M3 green, M4 blue). Equal pulls follow the ideal
+  jitterbug (cuboctahedron → icosahedron → octahedron); uneven pulls bend
+  it off that path, as the real one does.
 - **The rings**: one ring per day, one arc per hour, coloured by the kind of
   hour the latest run found (quiet · in between · busy). Every run reads the
   whole past again, so the past can change colour.
-- **Readings of the data** — same data, different shapes:
+- **Readings of the data** — same data, different shapes; each gives four
+  numbers, one per string (how far to let it out):
   *SOM* (the default: a self-organising map lays every hour the room
   has had on an 8×8 map of similar hours; the shape says where today sits on
   it, how widely it wanders, how new it is), *PCA* (where today sits along
@@ -57,7 +68,7 @@ sculpture at 12 hours a minute.
   all the others — the unusual combinations no single sensor shows). The
   highlighted one moves the sculpture; click another to switch.
 - **MLP**: your own mapping. Click **Teach…**, pick a moment on the
-  history slider, shape the twin with the six sliders (*Try on sculpture*
+  history slider, shape the twin with the four sliders (one per string) (*Try on sculpture*
   shows it on the real body), then **Teach this moment**. After two or more
   moments a small network learns from them and gives a shape for every
   moment — slide through the history to preview it before clicking the
@@ -70,8 +81,9 @@ sculpture at 12 hours a minute.
 
 ## Sound
 
-The sculpture is **silent until someone touches it**. A knock on a panel
-opens a window in which the panels' feedback rings — through Florian's
+The sculpture is **silent until someone touches it**. Each of the four
+pulled triangles is a panel with a piezo and an exciter, its own feedback
+loop. A knock on a panel opens a window in which that panel's feedback rings — through Florian's
 POLYHARPYE resonators, held in check by **CoFlo** (complexity-controlled
 feedback gain: when the loop locks onto one tone, the gain comes down) —
 then dies away. The data never plays notes: each 12-hour run sends a
@@ -83,13 +95,14 @@ then dies away. The data never plays notes: each 12-hour run sends a
 | the kind of hour now | which resonator leads (quiet → rings, in between → tabla, busy → comb) and its bands |
 | today's mix of kinds | the mix of the three resonators |
 | novelty | CoFlo's threshold and a frequency shift: unusual days don't settle into one tone |
-| the pose | the virtual panel's modes (on the real sculpture the fold itself re-tunes the panels) |
+| the pulls | the virtual panels' modes (on the real sculpture the strings' tension re-tunes the panels) |
 
 SuperCollider starts with `Weathering.command`. Without a sound card it
-plays a **virtual panel** (and an imaginary visitor knocks now and then);
-the page's **Touch** button knocks too. With the real sculpture —
-contact mics in, panel speakers out, through a sound card at one sample
-rate — start `./Weathering.command --sound-live`. Safety is built in and
+plays **four virtual panels** as a stereo mix (and an imaginary visitor
+knocks now and then); the page's **Touch** button knocks too. With the
+real sculpture — piezo *k* on input *k*, exciter *k* on output *k* of a
+4-in/4-out sound card at one sample rate — start
+`./Weathering.command --sound-live`. Safety is built in and
 can't be switched off: a slow automatic gain and a brickwall limiter.
 CoFlo's UGen is installed once per machine with `tools/build_cccrpc.sh`;
 without it a simpler measure stands in. Tune on the real panels with
@@ -102,8 +115,9 @@ without it a simpler measure stands in. Tune on the real panels with
   <http://127.0.0.1:8770> or double-click the command again.
 - **Computer off or crashed**: double-click `Weathering.command`. The show
   reopens where it was (`~/.weathering/shows/<show>/`), and a run that was
-  missed happens at once. Meanwhile the sculpture held its shape (it
-  remembers it), and the sensor box kept about a day of readings and sends
+  missed happens at once. Meanwhile the sculpture held its shape (the
+  motors keep it while they have power, and it remembers where it was),
+  and the sensor box kept about a day of readings and sends
   them now.
 - **Weeks unattended (Mac mini)**: System Settings → Energy → *Start up
   automatically after a power failure*; add `Weathering.command` to Login

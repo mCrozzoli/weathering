@@ -1,4 +1,4 @@
-# Weathering — protocol contract v0.1
+# Weathering — protocol contract v0.2
 
 The one document the firmware and the app both build against. Change it
 first, then both sides, and bump `FW_VERSION`. Patterns are taken from
@@ -11,7 +11,7 @@ HELLO discovery).
 |---|---|---|---|
 | `sensor` | `firmware/weathering_sensor` | in the room, battery or USB power | reads the room every `interval` s, sends readings to the hub over ESP-NOW, keeps a backlog while nobody listens |
 | `hub` | `firmware/weathering_hub` | on USB to the show computer | bridges USB serial ⇄ ESP-NOW, finds the other boards, relays time, poses and config |
-| `body` | `firmware/weathering_body` | inside the sculpture | drives 6 servos to the pose it's told, gliding slowly, stores the last pose and returns to it after a power cut |
+| `body` | `firmware/weathering_body` | inside the sculpture | drives 4 Dynamixel XL430 motors that wind the strings, to the pulls it's told, gliding slowly; remembers where it is and refuses to move if it can't be sure |
 
 All three are plain ESP32 (ESP32 Dev Module, `esp32:esp32:esp32`), Arduino
 core 2.0.14 (the one the IDE ships and the published binaries are built
@@ -47,16 +47,21 @@ INFO extras: `interval=<s> sensors=<list> sim=<list>` where `sensors` is
 what was detected at boot and `sim` what is simulated because it's missing.
 
 Sensors detected on I2C at boot (default pins SDA 21, SCL 22):
-- **SCD41** (0x62): `co2` (ppm), `t` (°C), `rh` (%)
+- **SCD30** (0x61, the sculpture's kit; the bus runs at 50 kHz because it
+  stretches the clock): `co2` (ppm), `t` (°C), `rh` (%)
+- **SCD41** (0x62), the same three channels, if there's no SCD30
 - **BH1750** (0x23 or 0x5C): `lux`
 - **Analog mic module** on `mic_pin` (default 34): `db` (relative sound
   level, dB re. full scale, measured over 1 s; 0 = loudest)
 
-Anything not found is SIMULATED (plausible indoor values with a day/night
-cycle) and listed in `sim=`, so a board with no sensors still works for
-testing. SET keys: `interval` (10–3600 s, default 300), `sda`, `scl`,
-`mic_pin`, `simulate` (`auto` = simulate only what's missing, `all`,
-`none`).
+`channels` (default `co2,t,rh`) says which channels are part of the show;
+the others are neither sent nor simulated, so more dimensions can be added
+later with `SET channels=co2,t,rh,lux,db` and the matching sensor. A
+listed channel without a sensor is SIMULATED (plausible indoor values with
+a day/night cycle) and listed in `sim=`, so a board with no sensors still
+works for testing. SET keys: `channels`, `interval` (10–3600 s, default
+300), `sda`, `scl`, `mic_pin`, `simulate` (`auto` = simulate only what's
+missing, `all`, `none`).
 
 USB commands: `READ` → prints one reading line now (format as below).
 
@@ -68,9 +73,9 @@ are re-sent oldest first once the hub is back, flagged `old`.
 
 ```
 host → hub:  TIME <unix_seconds>           the computer's clock; the hub relays it to the sensor
-             POSE <seq> <a0> <a1> <a2> <a3> <a4> <a5> <glide_s>
-             RELAX                          body servos stop holding (detached)
-             TEST <k>                       body wiggles servo k (0..5)
+             POSE <seq> <p1> <p2> <p3> <p4> <glide_s>
+             RELAX                          body motors stop holding (torque off: the structure opens by itself)
+             TEST <k>                       body winds motor k (1..4) a little in and back
              READ                           ask the sensor for a reading now
              CFG sensor <key>=<value> ...   forward SET to the sensor board over the radio
              CFG body <key>=<value> ...     forward SET to the body board over the radio
@@ -79,7 +84,8 @@ host → hub:  TIME <unix_seconds>           the computer's clock; the hub relay
 hub → host:  OK POSE <seq>                  hub accepted the pose
              ACK body <seq>  |  NAK body <seq>     the body got it (or not, after 3 tries)
              R <unix> <seq> co2=<v> t=<v> rh=<v> lux=<v> db=<v> [sim=<list>] [old]
-             BODY <a0> … <a5> moving=<0|1>  the body's current position (every 2 s while moving, and on change)
+             BODY <p1> … <p4> moving=<0|1> homed=<0|1> found=<mask>
+                                            the body's current pulls (every 2 s while moving, and on change)
              NODE <role> <mac> fw <version> rssi <dBm>    a board heard (answer to NODES, and when first heard)
              LOST <role>                    not heard for 30 s
              OK <cmd>  |  ERR <reason>  |  LOG <text>
@@ -91,31 +97,67 @@ hub → host:  OK POSE <seq>                  hub accepted the pose
   time. A value is missing (key absent) if that channel has neither a
   sensor nor simulation. `sim=co2,lux` names simulated channels. `old`
   means a backlog reading arriving late.
-- **Poses**: `a0..a5` in [0, 1] with 3 decimals. **0 = that servo's
-  closed end, 1 = its open end**, as calibrated on the body board. `glide_s`
-  (0–3600) is how long the body takes to get there; the default for data
-  poses is 60 s (weathering is slow).
+- **Poses** are four **pulls** `p1..p4` in [0, 1] with 3 decimals, one per
+  motor (Dynamixel IDs 1–4 by default). **0 = string slack, structure open
+  (cuboctahedron); 1 = string wound to its calibrated closed point,
+  structure closed (octahedron).** The show starts closed (all 1) and opens
+  as it lives. `glide_s` (0–3600) is how long the body takes to get there;
+  the default for data poses is 60 s (weathering is slow).
+- `homed=0` means the body isn't sure where the strings are (see Body
+  board): it holds no torque and ignores poses until someone sets it again.
+  `found` is a bitmask of the motors that answer (bit 0 = motor 1).
 - The hub keeps no data: the computer is the memory.
 
 ## Body board
 
-INFO extras: `pose=<a0>,…,<a5> s0=<pin>,<min_us>,<max_us>,<closed 0|1> … s5=…`
+Four Dynamixel XL430-W250 on one half-duplex TTL line: ESP32 TX (GPIO 32)
+through 1 kΩ to the data line, RX (GPIO 33) straight on it; 57600 baud,
+Protocol 2.0, extended position mode (multi-turn); motors on their own
+12 V supply, grounds joined. Every byte sent echoes back; the firmware
+looks for the status packet instead of assuming where the echo ends.
 
-SET keys: `s<k>=<pin>,<min_us>,<max_us>,<closed>` where `closed` says which
-end is closed (0: min_us is closed, 1: max_us is closed). Defaults: pins
-13, 12, 14, 27, 26, 25, 1000–2000 µs, closed = 0.
-USB commands: `POSE <a0> … <a5> <glide_s>`, `TEST <k>`, `RELAX`.
+**Calibration** (stored in flash; all of it can be done from the Boards
+page or with `CFG body …` through the hub, since it is all `SET`):
 
-Behaviour: glides linearly from where it is to the target over `glide_s`;
-stores the TARGET pose in flash when it arrives; at boot moves to the
-stored pose (or all 0 = closed the very first time). Servo outputs are
-50 Hz PWM (LEDC). Servos need their own 5–6 V supply with grounds joined
-(documented in HARDWARE.md, not enforced by firmware).
+| SET | Does |
+|---|---|
+| `jog=<k>,<ticks>` | turns motor k (1–4) by ±ticks (≤ 1024 = ¼ turn per command), torque on that motor only; for finding the slack and closed points by hand |
+| `slack=all` | "the structure is open and every string just slack, now": stores each motor's present position as its zero (pull 0) and marks the body homed |
+| `closed=<k>` | "motor k has drawn its triangle fully in, now": stores travel = present − zero (the sign is the direction). Travel must be ¼–8 turns |
+| `ids=<i1>,<i2>,<i3>,<i4>` | the Dynamixel ID of motor 1..4 (default 1,2,3,4) |
+| `setid=<old>,<new>` | changes a motor's ID (do it with that motor ALONE on the line: new XL430s all ship as ID 1) |
+| `speed=<1–100>` | profile velocity limit in % of 60 rpm (default 30) |
+| `group=<g>` | as every board |
+
+USB-only commands: `SCAN` (pings IDs 0–252 at 57600 and 1 000 000 baud,
+prints `LOG motor id <id> baud <b> model <m>` for each), `POSE <p1> … <p4>
+<glide_s>`, `TEST <k>`, `RELAX`.
+
+INFO extras: `pose=<p1>,…,<p4> m1=<id>,<travel> … m4=… homed=<0|1>
+found=<mask> moving= relaxed= hub=`.
+
+**Safety** (built in, not settings):
+- A motor is driven only when it answers, the body is homed and its travel
+  is calibrated. Goals are clamped to zero − 2 % … zero + 102 % of travel,
+  whatever arrives. Glides are linear in pull; the motors' own profile
+  velocity/acceleration smooth the start and end.
+- The body stores zero, travel and the last pull it settled on. At boot it
+  reads where the motors are and compares: within 1/16 turn of where they
+  should be (an ESP32 reset), it carries on; if the motors lost their
+  multi-turn count (their 12 V went off) it tries whole turns; if neither
+  matches, it is **not homed**: torque off, poses ignored, `homed=0`, until
+  `slack=all` is set again with the structure open. It never assumes "where
+  I am at power-up is slack".
+- `RELAX` (torque off) lets the structure open by itself; the body keeps
+  counting, so poses work again afterwards.
+- No streaming needed: the body holds the last pose for as long as it has
+  power. TEST winds motor k in by 5 % of its travel (⅛ turn before
+  calibration) and back, to check the direction.
 
 ## Radio (ESP-NOW), one fixed packet
 
 ```c
-#define WX_MAGIC 0xA7
+#define WX_MAGIC 0xA8      // 0xA7 was v0.1 (six servos)
 typedef struct __attribute__((packed)) {
   uint8_t  magic;      // WX_MAGIC (bump on incompatible change)
   uint8_t  type;       // WX_*
@@ -126,7 +168,7 @@ typedef struct __attribute__((packed)) {
   uint32_t unix;       // TIME, READING
   uint8_t  flags;      // READING: bit0 old, bits1..5 simulated mask (co2,t,rh,lux,db)
   uint8_t  present;    // READING: bit i = value i present
-  float    v[6];       // READING: co2,t,rh,lux,db,(spare); POSE: a0..a5; CONFIG: unused
+  float    v[6];       // READING: co2,t,rh,lux,db,(spare); POSE, BODYSTATE: p1..p4 in v[0..3]; CONFIG: unused
   uint16_t glide_s;    // POSE
   char     text[40];   // CONFIG: "key=value key=value"; TEST: "k"
 } WxPacket;
@@ -140,8 +182,9 @@ enum { WX_HELLO=1, WX_READING=2, WX_ACK=3, WX_TIME=4, WX_POSE=5,
 - Reading → hub replies `WX_ACK(seq)`; the sensor drops it from the
   backlog only after the ACK.
 - Pose → body replies `WX_ACK(seq)`; the hub retries 3× (300 ms) then NAKs.
-- `WX_BODYSTATE`: body → hub, current position in `v[0..5]`, flags bit0 =
-  moving.
+- `WX_BODYSTATE`: body → hub, current pulls in `v[0..3]`; flags bit0 =
+  moving, bit1 = homed, bits 4–7 = found mask.
+- `WX_TEST`: `text` = "k" (1–4).
 
 ## Files the app keeps (local app; the online version keeps the same in the browser)
 
@@ -150,9 +193,13 @@ enum { WX_HELLO=1, WX_READING=2, WX_ACK=3, WX_TIME=4, WX_POSE=5,
 - `readings.csv` — append-only, one line per reading, flushed immediately:
   `unix,seq,co2,t,rh,lux,db,sim,old`
 - `runs.jsonl` — one line per 12-hour run:
-  `{"run":n,"unix":…,"n_readings":…,"openness":…,"poses":{"<algorithm>":[a0..a5],…},"driving":"<algorithm>","notes":{…}}`
+  `{"run":n,"unix":…,"n_readings":…,"openness":…,"poses":{"<algorithm>":[s1..s4],…},"driving":"<algorithm>","sent":[p1..p4],…}`
+  — a pose `s` is how far each string is let out (0 = closed, 1 = open);
+  what the body is sent is `p = 1 − openness × s`.
 - `show.json` — name, start time, run times (default `["06:00","18:00"]`),
-  which algorithm drives the body, settings.
+  `moves` (`"runs"`, default: the body moves at the runs only; `"live"`:
+  it also follows every new reading, with a short glide; live poses are not
+  stored as runs), which algorithm drives the body, taught shapes.
 
 Restart = reopen the show: readings and runs reload from these files; a run
 whose time passed while the app was off runs at once.
@@ -184,3 +231,11 @@ whose time passed while the app was off runs at once.
    Body: adds `moving= relaxed= hub=`; its `pose=` is the TARGET. On their
    own USB the sensor echoes scheduled readings as `LOG R …` (a USB `READ`
    prints a plain `R …`) and the body prints `BODY …`.
+
+## Changes in v0.2 (the NPTX sculpture)
+
+Six hobby servos → four Dynamixel XL430 winding strings (Florian's NPTX
+build); poses are 4 pulls, 1 = closed; calibration by `jog`, `slack`,
+`closed` instead of pins and pulse widths; SCD30 support and the
+`channels` key; `WX_MAGIC` 0xA8, firmware 0.2.0. Boards on 0.1 must be
+reflashed (they ignore 0.2 packets and vice versa).

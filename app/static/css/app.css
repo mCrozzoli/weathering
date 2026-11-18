@@ -140,3 +140,9 @@ dialog label { display: grid; grid-template-columns: 150px 1fr; align-items: cen
 #teachSliders input { accent-color: var(--accent); min-width: 0; }
 #teachList .ex { display: flex; justify-content: space-between; align-items: center; }
 #teachList button { padding: 0 6px; }
+/* sculpture motors (Boards) */
+table.servos td.jog { white-space: nowrap; }
+table.servos td.jog button { min-width: 30px; padding: 4px 6px; margin-right: 2px; }
+#bodyCfg .steps input[type=number] { width: 4.5em; }
+#channelBoxes label { margin-right: 10px; white-space: nowrap; }
+@media (max-width: 560px) { table.servos { font-size: 12px; } table.servos td.jog button { min-width: 26px; padding: 3px 4px; } }

@@ -6,21 +6,22 @@
 // asked for — each algorithm makes its own shape):
 //   som       where today lives on a self-organising map of the room's states
 //   pca       the room's main directions: where today sits along the first
-//             three, and how much today moves along them
+//             three, and how much today moves
 //   clusters  kinds of hours (k-means, 3): today's share of each kind, and
-//             the whole history's share
-//   extremes  how unusual today is per channel (percentile in its own
-//             history), plus overall novelty (isolation forest)
-// A pose is 6 values in [0,1]; value k drives servo k. What the body gets is
-// pose × openness, so it starts closed and opens as data accumulates.
+//             how differently today is mixed from all time
+//   extremes  how high today is for CO₂, temperature, humidity (percentile
+//             in their own history), plus novelty (isolation forest)
+// A pose (a shape) is 4 values in [0,1], one per string: how far string k is
+// let out (0 = closed). The body gets pulls = 1 − openness × shape, so the
+// sculpture starts closed and opens as data accumulates.
 
-import { CHANNELS } from "./protocol.js";
+import { CHANNELS, CORE_CHANNELS, MOTORS, toPulls } from "./protocol.js";
 
 export const ALGORITHMS = {
   som:      { label: "SOM", about: "A self-organising map lays every hour since the opening out on a map of the room's states, learning by itself with no examples. Where today lives on that map, how widely it wanders, how familiar or new it is. The map grows from the last run's, so it weathers slowly instead of starting over." },
-  pca:      { label: "PCA", about: "Principal components: where today sits along the room's three main directions of change, and how much it moves along them." },
-  clusters: { label: "k-means", about: "The room's hours fall into three kinds (quiet · in between · busy). How much of today, and of all time, is each kind." },
-  extremes: { label: "IForest", about: "Isolation forest: how high today is in each sensor's own history (servos 1–5), and how easily today's hours are set apart from all the others, sensors together (servo 6)." },
+  pca:      { label: "PCA", about: "Principal components: where today sits along the room's three main directions of change (strings 1–3), and how much it moves (string 4)." },
+  clusters: { label: "k-means", about: "The room's hours fall into three kinds (quiet · in between · busy). How much of today is each kind (strings 1–3), and how differently today is mixed from all time (string 4)." },
+  extremes: { label: "IForest", about: "How high today is for CO₂, temperature and humidity in their own history (strings 1–3), and how easily an isolation forest sets today's hours apart from all the others, sensors together (string 4)." },
 };
 export const ALGORITHM_IDS = Object.keys(ALGORITHMS);
 export const WINDOW_H = 12;          // "today" = the last 12 hours
@@ -144,12 +145,14 @@ function pcaPose(Z, recent, prev) {
     const today = recent.map((i) => all[i]);
     pose.push(percentile(all, mean(today)));
   }
+  const moves = [];
   for (let k = 0; k < 3; k++) {
     const all = Z.map((r) => proj(r, comps[k]));
     const overall = std(all) || 1;
     const today = recent.map((i) => all[i]);
-    pose.push(clamp01(std(today) / overall / 1.5));
+    moves.push(std(today) / overall);
   }
+  pose.push(clamp01(mean(moves) / 1.5));
   return {
     pose,
     meta: { loadings: comps.map((v) => v.map((x) => +x.toFixed(4))),
@@ -191,7 +194,7 @@ const PERMS3 = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
 
 function clustersPose(Z, X, recent, prev, std0) {
   const k = 3;
-  if (Z.length < k) return { pose: new Array(6).fill(0), meta: null };
+  if (Z.length < k) return { pose: new Array(MOTORS).fill(0), meta: null };
   const km = kmeans(Z, k);
   // centroids in sensor units, so the next run can recognise them
   const centsUnits = km.cents.map((c) => c.map((z, j) => z * std0.sd[j] + std0.mu[j]));
@@ -214,7 +217,10 @@ function clustersPose(Z, X, recent, prev, std0) {
   const share = (idx) => [0, 1, 2].map((s) => idx.filter((i) => labels[i] === s).length / (idx.length || 1));
   const all = Z.map((_, i) => i);
   return {
-    pose: [...share(recent), ...share(all)],
+    pose: (() => {
+      const today = share(recent), ever = share(all);
+      return [...today, today.reduce((s, x, i) => s + Math.abs(x - ever[i]), 0) / 2];
+    })(),
     meta: { centroids: order.map((ci) => centsUnits[ci].map((x) => +x.toFixed(3))) },
     labels,
   };
@@ -223,7 +229,7 @@ function clustersPose(Z, X, recent, prev, std0) {
 // ---------------------------------------------------------- extremes
 function extremesPose(Z, X, channels, recent) {
   const pose = [];
-  for (const c of CHANNELS.slice(0, 5)) {
+  for (const c of CORE_CHANNELS) {
     const j = channels.indexOf(c);
     if (j < 0) { pose.push(0.5); continue; }
     const col = X.map((r) => r[j]);
@@ -291,11 +297,9 @@ export function isolationScores(Z, { trees = IF_TREES, sample = IF_SAMPLE, seed 
 // the previous run's map (in sensor units, re-standardised), so it reshapes
 // slowly; the very first map is laid along the two main directions (PCA),
 // so it is deterministic. Pose:
-//   a0, a1  where today lives on the map (mean cell, column and row)
-//   a2      how widely today wanders across the map
-//   a3      how unfamiliar today is (fit error, against all hours)
-//   a4      how many different cells today visits
-//   a5      how well-trodden today's cells are (visits so far)
+//   s1, s2  where today lives on the map (mean cell, column and row)
+//   s3      how widely today wanders across the map
+//   s4      how unfamiliar today is (fit error, against all hours)
 export const SOM_SIZE = 8;
 
 function somTrain(Z, init, { epochs, radius0, rate0 }) {
@@ -349,9 +353,6 @@ function somPose(Z, recent, std0, prev) {
   }
   const bmu = (x) => { let b = 0, bd = Infinity; for (let k = 0; k < W.length; k++) { const dd = dist2(x, W[k]); if (dd < bd) { bd = dd; b = k; } } return [b, Math.sqrt(bd)]; };
   const all = Z.map(bmu);
-  const hits = new Array(n * n).fill(0);
-  all.forEach(([b]) => hits[b]++);
-  const maxHits = Math.max(...hits) || 1;
   const today = recent.map((i) => all[i]);
   const cols = today.map(([b]) => b % n), rows = today.map(([b]) => Math.floor(b / n));
   const spread = Math.sqrt(std(cols) ** 2 + std(rows) ** 2) / (n / 2);
@@ -361,8 +362,6 @@ function somPose(Z, recent, std0, prev) {
     mean(rows) / (n - 1),
     clamp01(spread * 1.5),
     percentile(errs, mean(today.map(([, e]) => e))),
-    clamp01(new Set(today.map(([b]) => b)).size / Math.min(12, recent.length + 1) ),
-    clamp01(mean(today.map(([b]) => hits[b] / maxHits))),
   ];
   return {
     pose,
@@ -386,11 +385,11 @@ export function openness(hoursLived, motion, showDays = 14) {
 export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, driving = "som" } = {}) {
   const usable = readings.filter((r) => r.unix <= nowUnix);
   const { hours, channels, X } = hourly(usable);
-  const closed = new Array(6).fill(0);
+  const closed = new Array(MOTORS).fill(0);         // shape 0: every string in
   const base = { unix: nowUnix, n_readings: usable.length, n_hours: hours.length, channels, driving };
   if (hours.length < MIN_HOURS || channels.length < 2) {
     const poses = Object.fromEntries(ALGORITHM_IDS.map((a) => [a, closed.slice()]));
-    return { ...base, openness: 0, poses, sent: closed.slice(), meta: {}, note: "not enough data yet" };
+    return { ...base, openness: 0, poses, sent: toPulls(closed, 0), meta: {}, note: "not enough data yet" };
   }
   const { Z, mu, sd } = standardize(X);
   const cut = nowUnix - WINDOW_H * 3600;
@@ -417,7 +416,7 @@ export function runPipeline(readings, nowUnix, prev = null, { showDays = 14, dri
     driving: drive,
     openness: +open.toFixed(3),
     poses,
-    sent: poses[drive].map((a) => +(a * open).toFixed(3)),
+    sent: toPulls(poses[drive], open),
     meta: { pca: pca.meta, clusters: cl.meta, som: so.meta, z: { mu: mu.map((x) => +x.toFixed(4)), sd: sd.map((x) => +x.toFixed(4)) } },
   };
 }
@@ -487,14 +486,17 @@ export function soundContext(run, labels) {
     openness: run?.openness ?? 0,
     kind,
     quiet: c[0] ?? 0.33, between: c[1] ?? 0.34, busy: c[2] ?? 0.33,
-    novelty: run?.poses?.extremes?.[5] ?? 0,
+    novelty: run?.poses?.extremes?.[3] ?? 0,
   };
 }
 
 // ------------------------------------------------------------ taught
 // The data state a taught mapping learns from: the four readings of a run
-// (24 numbers). Examples pair it with a shape shaped on the twin.
+// (16 numbers). Examples pair it with a shape shaped on the twin.
 export const TAUGHT_INPUTS = ["som", "pca", "clusters", "extremes"];
 export function dataState(run) {
-  return TAUGHT_INPUTS.flatMap((id) => (run?.poses?.[id] || new Array(6).fill(0)).slice(0, 6));
+  return TAUGHT_INPUTS.flatMap((id) => {
+    const p = run?.poses?.[id] || [];
+    return Array.from({ length: MOTORS }, (_, k) => (Number.isFinite(p[k]) ? p[k] : 0));
+  });
 }

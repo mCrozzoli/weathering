@@ -55,12 +55,12 @@ def test_silent_until_touched_then_rings_and_dies(tmp_path):
         sound.send("/wx/context", "openness", 0.7, "kind", 2.0, "quiet", 0.2,
                    "between", 0.3, "busy", 0.5, "novelty", 0.2)
         time.sleep(3.0)                               # nobody touches: silence
-        sound.send("/wx/touch")
+        sound.send("/wx/touch", 0.0)
         time.sleep(14.0)                              # it rings, then dies away
         sound.send("/wx/set", "couple", 4.0)          # far too much feedback…
         sound.send("/wx/set", "fbGain", 4.0)
         sound.send("/wx/set", "makeupDb", 40.0)
-        sound.send("/wx/touch")
+        sound.send("/wx/touch", 0.0)
         time.sleep(6.0)
     finally:
         sound.stop(timeout=8)

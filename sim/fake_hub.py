@@ -19,8 +19,9 @@ import tty
 
 from sim.room import Room
 
-FW = "0.1.0-sim"
-CHANNELS = ("co2", "t", "rh", "lux", "db")
+FW = "0.2.0-sim"
+CHANNELS = ("co2", "t", "rh")              # the SCD30; lux and db are optional
+MOTORS = 4
 
 
 class FakeHub:
@@ -33,7 +34,7 @@ class FakeHub:
         self.clock = float(start_unix if start_unix is not None else time.time())
         self.next_reading = self.clock
         self.seq = 0
-        self.pose = [0.0] * 6
+        self.pose = [1.0] * MOTORS                # pulls: the body starts closed
         self.src = self.pose[:]
         self.target = self.pose[:]
         self.glide_start, self.glide_dur = 0.0, 0.0
@@ -67,11 +68,11 @@ class FakeHub:
                 self.say("OK TIME")                  # keeps its own (fast) clock
             elif cmd == "READ":
                 self._reading(now=True)
-            elif cmd == "POSE" and len(p) >= 8:
+            elif cmd == "POSE" and len(p) == 3 + MOTORS:
                 try:
                     seq = int(p[1])
-                    vals = [min(1.0, max(0.0, float(x))) for x in p[2:8]]
-                    glide = float(p[8]) if len(p) > 8 else 60.0
+                    vals = [min(1.0, max(0.0, float(x))) for x in p[2:2 + MOTORS]]
+                    glide = float(p[2 + MOTORS])
                 except ValueError:
                     self.say("ERR bad pose")
                     return
@@ -112,7 +113,7 @@ class FakeHub:
             self.pose = new
             if changed and (time.monotonic() - self.last_body > 0.3 or k >= 1):
                 self.last_body = time.monotonic()
-                self.say("BODY " + " ".join(f"{a:.3f}" for a in self.pose) + f" moving={0 if k >= 1 else 1}")
+                self.say("BODY " + " ".join(f"{a:.3f}" for a in self.pose) + f" moving={0 if k >= 1 else 1} homed=1 found=15")
 
 
 class PtyHub:

@@ -6,12 +6,12 @@
 // into the void (the sensor keeps it in its backlog instead).
 //
 // Contract: docs/PROTOCOL.md. USB lines (115200 baud):
-//   host -> hub:  TIME <unix>   POSE <seq> <a0..a5> <glide_s>   RELAX   TEST <k>
+//   host -> hub:  TIME <unix>   POSE <seq> <p1..p4> <glide_s>   RELAX   TEST <1..4>
 //                 READ   CFG sensor|body <key>=<value> ...   NODES
 //                 INFO   SET group=<g>   PING
 //   hub -> host:  OK <cmd>  OK POSE <seq>  ACK body <seq>  NAK body <seq>
 //                 R <unix> <seq> co2=.. t=.. rh=.. lux=.. db=.. [sim=..] [old]
-//                 BODY <a0..a5> moving=<0|1>   NODE <role> <mac> fw <ver> rssi <dBm>
+//                 BODY <p1..p4> moving= homed= found=   NODE <role> <mac> fw <ver> rssi <dBm>
 //                 LOST <role>   INFO ...   PONG   ERR <reason>   LOG <text>
 //
 // The computer is "listening" when it sent TIME since boot and any line in
@@ -252,8 +252,9 @@ static void handle_radio(const RxItem *it) {
       }
       break;
     case WX_BODYSTATE:
-      Serial.printf("BODY %.3f %.3f %.3f %.3f %.3f %.3f moving=%d\n", p->v[0], p->v[1], p->v[2],
-                    p->v[3], p->v[4], p->v[5], (p->flags & WX_FLAG_MOVING) ? 1 : 0);
+      Serial.printf("BODY %.3f %.3f %.3f %.3f moving=%d homed=%d found=%u\n", p->v[0], p->v[1], p->v[2],
+                    p->v[3], (p->flags & WX_FLAG_MOVING) ? 1 : 0, (p->flags & WX_FLAG_HOMED) ? 1 : 0,
+                    (unsigned)(p->flags >> 4));
       break;
     case WX_CONFIG: {
       // A board's answer to CFG (its "OK SET" / "ERR ...").
@@ -312,22 +313,22 @@ static void cmd_set(char *args) {
 }
 
 static void cmd_pose(char *args) {
-  char *tok[9];
+  char *tok[7];
   int n = 0;
-  for (char *t = strtok(args, " "); t && n < 9; t = strtok(nullptr, " ")) tok[n++] = t;
+  for (char *t = strtok(args, " "); t && n < 7; t = strtok(nullptr, " ")) tok[n++] = t;
   long seq, glide;
-  float a[6];
-  if (n != 8 || !wx_parse_long(tok[0], 0, 65535, &seq) || !wx_parse_long(tok[7], 0, 3600, &glide)) {
-    Serial.println("ERR usage POSE <seq> <a0> .. <a5> <glide_s>");
+  float a[4];
+  if (n != 6 || !wx_parse_long(tok[0], 0, 65535, &seq) || !wx_parse_long(tok[5], 0, 3600, &glide)) {
+    Serial.println("ERR usage POSE <seq> <p1> .. <p4> <glide_s>");
     return;
   }
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 4; i++) {
     if (!wx_parse_float(tok[1 + i], 0.0f, 1.0f, &a[i])) { Serial.println("ERR pose values 0..1"); return; }
   }
   if (pose_busy) Serial.printf("NAK body %u\n", (unsigned)pose_pkt.seq);   // superseded
   wx_init(&pose_pkt, WX_POSE, group, MY_ROLE);
   pose_pkt.seq = (uint16_t)seq;
-  for (int i = 0; i < 6; i++) pose_pkt.v[i] = a[i];
+  for (int i = 0; i < 4; i++) pose_pkt.v[i] = a[i];
   pose_pkt.glide_s = (uint16_t)glide;
   pose_busy = true;
   pose_tries = 0;
@@ -400,7 +401,7 @@ static void handle_command(char *line) {
     Serial.printf("OK %s\n", line);
   } else if (strcmp(line, "TEST") == 0) {
     long k;
-    if (!wx_parse_long(args, 0, 5, &k)) { Serial.println("ERR usage TEST <0..5>"); return; }
+    if (!wx_parse_long(args, 1, 4, &k)) { Serial.println("ERR usage TEST <1..4>"); return; }
     WxPacket p;
     wx_init(&p, WX_TEST, group, MY_ROLE);
     p.text[0] = (char)('0' + k);

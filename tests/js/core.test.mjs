@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { parseLine, formatPose, readingToCsv, csvToReading, formatReading, CSV_HEADER } from "../../app/static/js/protocol.js";
 import { Room } from "../../app/static/js/room.js";
 import { runPipeline, hourly, dueRun, nextRun, openness, eigSym, percentile, labelHours, soundContext, ALGORITHM_IDS } from "../../app/static/js/pipeline.js";
-import { vertices, PAIRS, FACES, T_JESSEN } from "../../app/static/js/twin.js";
+import { TRIS, PULLED, solve, ideal } from "../../app/static/js/twin.js";
+import { toPulls } from "../../app/static/js/protocol.js";
 import { FakeHub } from "../../app/static/js/fakehub.js";
 
 const DAY = 86400;
@@ -44,14 +45,20 @@ test("missing channels parse as null", () => {
 test("other hub lines", () => {
   assert.deepEqual(parseLine("ACK body 7"), { type: "ack", role: "body", seq: 7 });
   assert.equal(parseLine("NODE sensor AA:BB fw 0.1.0 rssi -50").role, "sensor");
-  assert.equal(parseLine("BODY 0.1 0.2 0.3 0.4 0.5 0.6 moving=1").moving, true);
+  const body = parseLine("BODY 0.1 0.2 0.3 0.4 moving=1 homed=0 found=7");
+  assert.deepEqual([body.pose, body.moving, body.homed, body.found], [[0.1, 0.2, 0.3, 0.4], true, false, 7]);
+  assert.equal(parseLine("BODY 0.1 0.2 0.3").type, "bad");
   assert.equal(parseLine("FW weathering_body 0.1.0 mac AA:BB group 1").role, "body");
   assert.equal(parseLine("INFO sensor fw 0.1.0 mac AA group 1 interval=300 sensors=co2,t").info.interval, "300");
   assert.equal(parseLine("R garbage").type, "bad");
 });
 
 test("pose lines clamp and validate", () => {
-  assert.equal(formatPose(3, [0, 0.5, 1, 2, -1, 0.1234], 60), "POSE 3 0.000 0.500 1.000 1.000 0.000 0.123 60");
+  assert.equal(formatPose(3, [0, 0.5, 2, 0.1234], 60), "POSE 3 0.000 0.500 1.000 0.123 60");
+  assert.throws(() => formatPose(3, [0, 0, 0, 0, 0, 0], 60));
+  // a shape (how far each string is let out) becomes pulls (1 = closed)
+  assert.deepEqual(toPulls([0, 0.5, 1, 1], 0), [1, 1, 1, 1]);
+  assert.deepEqual(toPulls([0, 0.5, 1, 1], 0.5), [1, 0.75, 0.5, 0.5]);
   assert.throws(() => formatPose(1, [0, 1]));
 });
 
@@ -83,22 +90,23 @@ test("too little data keeps the sculpture closed", () => {
   const rs = simulate(0.1);
   const run = runPipeline(rs, rs.at(-1).unix);
   assert.equal(run.openness, 0);
-  assert.deepEqual(run.sent, [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(run.sent, [1, 1, 1, 1]);      // pulls: every string in, closed
 });
 
-test("a run gives a 6D pose per algorithm, all in [0,1]", () => {
+test("a run gives four values per algorithm (one per string), all in [0,1]", () => {
   const rs = simulate(3);
   const run = runPipeline(rs, rs.at(-1).unix);
   for (const a of ALGORITHM_IDS) {
-    assert.equal(run.poses[a].length, 6, a);
+    assert.equal(run.poses[a].length, 4, a);
     for (const x of run.poses[a]) assert.ok(x >= 0 && x <= 1, `${a} ${x}`);
   }
-  assert.equal(run.sent.length, 6);
+  assert.equal(run.sent.length, 4);
+  assert.deepEqual(run.sent, toPulls(run.poses[run.driving], run.openness));
   assert.ok(run.openness > 0 && run.openness < 1);
   // the shares of the three kinds of hours add up to 1
   const c = run.poses.clusters;
   assert.ok(Math.abs(c[0] + c[1] + c[2] - 1) < 0.01);
-  assert.ok(Math.abs(c[3] + c[4] + c[5] - 1) < 0.01);
+  assert.ok(c[3] >= 0 && c[3] <= 1);              // how differently today is mixed
 });
 
 test("algorithms disagree: same data, different shapes", () => {
@@ -140,7 +148,9 @@ test("a missing sensor still runs, with fewer channels", () => {
   const rs = simulate(3, { missing: ["lux", "db"] });
   const run = runPipeline(rs, rs.at(-1).unix);
   assert.deepEqual(run.channels, ["co2", "t", "rh"]);
-  assert.equal(run.poses.extremes[3], 0.5);     // lux: no sensor → middle
+  const full = runPipeline(simulate(3), rs.at(-1).unix);
+  assert.deepEqual(full.channels, ["co2", "t", "rh", "lux", "db"]);   // optional channels join in
+  assert.equal(full.poses.extremes.length, 4);
 });
 
 test("gaps (computer off) are just fewer hours", () => {
@@ -165,24 +175,23 @@ test("due runs at the local run times, catching up once after a gap", () => {
 });
 
 // ---------------------------------------------------------------- twin
-test("closed merges the six vertex pairs; open is Jessen's icosahedron", () => {
-  const closed = vertices([0, 0, 0, 0, 0, 0]);
-  for (const [i, j] of PAIRS) {
-    const d = Math.hypot(...closed[i].map((x, k) => x - closed[j][k]));
-    assert.ok(d < 0.05, `pair ${i},${j} should nearly merge, distance ${d}`);
-  }
-  const open = vertices([1, 1, 1, 1, 1, 1]);
-  const ref = [1 - T_JESSEN, 0, 1 + T_JESSEN];
-  const n = Math.hypot(...ref);
-  assert.ok(Math.abs(open[0][0] - ref[0] / n) < 1e-9 && Math.abs(open[0][2] - ref[2] / n) < 1e-9);
-  // servo 2 moves only pair 2
-  const one = vertices([0, 0, 1, 0, 0, 0]);
-  for (let v = 0; v < 12; v++) {
-    const moved = Math.hypot(...one[v].map((x, k) => x - closed[v][k])) > 1e-9;
-    assert.equal(moved, PAIRS[2].includes(v), `vertex ${v}`);
-  }
-  assert.equal(FACES.length, 20);
-  assert.equal(new Set(PAIRS.flat()).size, 12);
+test("the twin is Florian's jitterbug: 8 rigid triangles, 4 of them pulled", () => {
+  assert.equal(TRIS.length, 8);
+  assert.equal(PULLED.filter(Boolean).length, 4);
+  assert.equal(new Set(PULLED.flat()).size, 12);                  // the pulled ones share no corner
+  const r = (X) => Math.hypot(...X[0]);
+  assert.ok(Math.abs(r(ideal(0)) - 2) < 1e-9, "pull 0: cuboctahedron");
+  assert.ok(Math.abs(r(ideal(1)) - Math.SQRT2) < 1e-9, "pull 1: octahedron");
+  const edgeErr = (X) => Math.max(...TRIS.flatMap((f) => [0, 1, 2].map((e) => {
+    const a = X[f[e]], b = X[f[(e + 1) % 3]];
+    return Math.abs(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) - 2);
+  })));
+  assert.ok(edgeErr(solve([0.5, 0.5, 0.5, 0.5])) < 1e-9);
+  // uneven pulls bend it off the ideal path, triangles still rigid
+  const X = solve([1, 0, 0.3, 0.8]);
+  assert.ok(edgeErr(X) < 0.02, `triangles stretched: ${edgeErr(X)}`);
+  const centre = (f) => Math.hypot(...[0, 1, 2].map((d) => (X[f[0]][d] + X[f[1]][d] + X[f[2]][d]) / 3));
+  assert.ok(centre(PULLED[0]) < centre(PULLED[1]), "the pulled-in string's triangle is closer to the hub");
 });
 
 // ------------------------------------------------------------- fake hub
@@ -193,15 +202,17 @@ test("the fake hub speaks the protocol and runs fast", async () => {
   hub.skip(DAY);
   const readings = lines.map(parseLine).filter((e) => e.type === "reading");
   assert.equal(readings.length, 289);            // every 300 s for a day, both ends
-  assert.ok(readings.every((e) => e.reading.sim.length === 5));
+  // the demo sensor box has the sculpture's SCD30 only: CO₂, temperature, humidity
+  assert.ok(readings.every((e) => e.reading.sim.join() === "co2,t,rh" && e.reading.lux === null));
   assert.equal(lines[0], "PONG");
-  hub.write("POSE 4 0.1 0.2 0.3 0.4 0.5 0.6 0");
+  hub.write("POSE 4 0.1 0.2 0.3 0.4 0");
   assert.ok(lines.includes("OK POSE 4"));
   await new Promise((r) => setTimeout(r, 200));
   assert.ok(lines.includes("ACK body 4"));
   hub.skip(10);
   const body = lines.map(parseLine).filter((e) => e.type === "body").at(-1);
-  assert.deepEqual(body.pose, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+  assert.deepEqual(body.pose, [0.1, 0.2, 0.3, 0.4]);
+  assert.equal(body.homed, true);
   hub.write("CFG sensor interval=600");
   assert.equal(hub.interval, 600);
   assert.ok(lines.at(-1).startsWith("OK CFG"));
@@ -232,7 +243,7 @@ test("the room map (SOM) is the default reading and stays in [0,1]", () => {
   const run = runPipeline(rs, rs.at(-1).unix);
   assert.equal(run.driving, "som");
   assert.equal(Object.keys(ALGORITHMS)[0], "som");
-  assert.equal(run.poses.som.length, 6);
+  assert.equal(run.poses.som.length, 4);
   for (const x of run.poses.som) assert.ok(x >= 0 && x <= 1);
   assert.equal(run.meta.som.weights.length, 64);
   assert.deepEqual(runPipeline(rs, rs.at(-1).unix).poses.som, run.poses.som, "deterministic");
@@ -255,7 +266,7 @@ test("a taught mapping reproduces its examples and fills in between", () => {
   const rs = simulate(5);
   let prev = null; const runs = [];
   for (let k = 2; k <= 5; k++) { prev = runPipeline(rs, 1_790_000_000 + k * DAY, prev); runs.push(prev); }
-  const shapes = [[0.1, 0.1, 0.1, 0.1, 0.1, 0.1], [0.9, 0.8, 0.9, 0.8, 0.9, 0.8], [0.2, 0.9, 0.2, 0.9, 0.2, 0.9]];
+  const shapes = [[0.1, 0.1, 0.1, 0.1], [0.9, 0.8, 0.9, 0.8], [0.2, 0.9, 0.2, 0.9]];
   const examples = shapes.map((output, i) => ({ input: dataState(runs[i]), output }));
   const t = trainTaught(examples);
   assert.ok(t.err < 0.005, `didn't learn its examples: ${t.err}`);
@@ -264,7 +275,9 @@ test("a taught mapping reproduces its examples and fills in between", () => {
     y.forEach((v, k) => assert.ok(Math.abs(v - e.output[k]) < 0.12, `example off by ${Math.abs(v - e.output[k])}`));
   });
   const untaught = t.net.predict(dataState(runs[3]));
-  assert.equal(untaught.length, 6);
+  assert.equal(untaught.length, 4);
+  assert.equal(dataState(runs[0]).length, 16);
+  assert.equal(trainTaught([{ input: new Array(24).fill(0), output: new Array(6).fill(0) }, { input: new Array(24).fill(1), output: new Array(6).fill(1) }]), null, "six-servo shapes are skipped");
   for (const v of untaught) assert.ok(v >= 0 && v <= 1);
   assert.equal(trainTaught([examples[0]]), null, "one example isn't a mapping");
   assert.deepEqual(trainTaught(examples).net.predict(examples[0].input), t.net.predict(examples[0].input), "deterministic");

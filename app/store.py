@@ -27,6 +27,7 @@ DEFAULT_SETTINGS = {
     "examples": [],
     "show_days": 14,
     "glide_s": 60,
+    "moves": "runs",          # "runs": the body moves at the runs; "live": also with each reading
 }
 
 
@@ -73,6 +74,8 @@ class Show:
             m = self.meta()
             for k, v in changes.items():
                 if k in ("run_times", "driving", "show_days", "glide_s", "notes"):
+                    m[k] = v
+                elif k == "moves" and v in ("runs", "live"):
                     m[k] = v
                 elif k == "examples" and isinstance(v, list) and len(v) <= 64:
                     m[k] = v                      # taught shapes: [{run, input, output}]

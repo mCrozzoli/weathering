@@ -3,7 +3,7 @@
 // shape made on the twin) are enough; it then gives a shape for every data
 // state, taught or not. Deterministic: same examples, same network.
 //
-//   inputs (24: the four readings) → 8 tanh units → 6 sigmoid outputs (servos)
+//   inputs (16: the four readings) → 8 tanh units → 4 sigmoid outputs (strings)
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -17,7 +17,7 @@ function rng(seed) {
 const sig = (x) => 1 / (1 + Math.exp(-x));
 
 export class MLP {
-  constructor(nIn, nHidden = 8, nOut = 6, seed = 11) {
+  constructor(nIn, nHidden = 8, nOut = 4, seed = 11) {
     const r = rng(seed);
     const init = (fanIn) => () => (r() * 2 - 1) * Math.sqrt(1 / fanIn);
     this.nIn = nIn; this.nH = nHidden; this.nOut = nOut;
@@ -78,7 +78,9 @@ export class MLP {
 // Train on a show's examples ({input, output}); null when there are too few.
 export const MIN_EXAMPLES = 2;
 export function trainTaught(examples) {
-  if (!examples || examples.length < MIN_EXAMPLES) return null;
+  // shapes taught before the four-string sculpture (6 servos) don't fit: skip them
+  examples = (examples || []).filter((e) => e?.output?.length === 4 && e?.input?.length === 16);
+  if (examples.length < MIN_EXAMPLES) return null;
   const net = new MLP(examples[0].input.length);
   const err = net.train(examples);
   return { net, err };

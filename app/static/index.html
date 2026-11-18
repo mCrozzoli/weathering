@@ -112,7 +112,7 @@
         <!-- sensor -->
         <rect class="bx" x="20" y="30" width="190" height="78"/>
         <text class="t1" x="34" y="56">Sensor box</text>
-        <text class="t2" x="34" y="76">ESP32 + CO₂, light, sound</text>
+        <text class="t2" x="34" y="76">ESP32 + SCD30 (CO₂, T, RH)</text>
         <text class="t2" x="34" y="93">somewhere in the room</text>
         <!-- hub -->
         <rect class="bx hl" x="315" y="30" width="170" height="78"/>
@@ -127,12 +127,12 @@
         <!-- sculpture -->
         <rect class="bx" x="295" y="200" width="210" height="78"/>
         <text class="t1" x="309" y="226">Sculpture</text>
-        <text class="t2" x="309" y="246">ESP32 + 6 servos</text>
-        <text class="t2" x="309" y="263">own power for the servos</text>
+        <text class="t2" x="309" y="246">ESP32 + 4 Dynamixel motors</text>
+        <text class="t2" x="309" y="263">12 V for the motors</text>
         <!-- sound (later) -->
         <rect class="bx" x="590" y="200" width="210" height="78" style="stroke-dasharray:3 4"/>
         <text class="t1" x="604" y="226" style="fill:#75828c">Sound card</text>
-        <text class="t2" x="604" y="246">contact mics + speakers</text>
+        <text class="t2" x="604" y="246">4 piezos in · 4 exciters out</text>
         <text class="t2" x="604" y="263">SuperCollider · silent till touched</text>
         <!-- links -->
         <path class="ln radio" d="M210,69 L313,69" marker-end="url(#ar)"/>
@@ -150,10 +150,11 @@
       <h2>Start</h2>
       <ol class="steps">
         <li><b>Install the boards once.</b> Open <b>Boards</b>, plug each ESP32 in by USB and install its part: Sensor box, Hub, Sculpture. Needs Chrome or Edge.</li>
-        <li><b>Power the sensor box and the sculpture.</b> They find the hub by themselves (no addresses to type). The servos need their own 5–6 V supply.</li>
+        <li><b>Calibrate the sculpture once.</b> With its ESP32 on USB and the motors on 12 V, follow <b>Boards → Sculpture motors</b>: find the motors, set slack with the structure open, then set each string's closed point.</li>
+        <li><b>Power the sensor box and the sculpture.</b> They find the hub by themselves (no addresses to type).</li>
         <li><b>Plug the hub into the computer and double-click <code>Weathering.command</code>.</b> This page opens and connects. Three dots in the top bar turn green: hub, sensor, sculpture.</li>
-        <li><b>Sound</b> starts with it (SuperCollider). Without a sound card it plays a virtual panel; <b>Touch</b> knocks on it. With the contact mics and panel speakers, start <code>Weathering.command --sound-live</code>.</li>
-        <li><b>Leave it.</b> A reading arrives every 5 minutes and is saved at once. At 06:00 and 18:00 the data is read again from the start and the sculpture takes its new shape.</li>
+        <li><b>Sound</b> starts with it (SuperCollider). Without a sound card it plays four virtual panels; <b>Touch</b> knocks on one. With the four piezos and exciters on a 4-in/4-out sound card, start <code>Weathering.command --sound-live</code>.</li>
+        <li><b>Leave it.</b> A reading arrives every 5 minutes and is saved at once. It starts closed. At 06:00 and 18:00 the data is read again from the start and the strings let the sculpture open to its new shape (⚙ → <i>Moves: live</i> makes it also follow each reading).</li>
       </ol>
 
       <h2>If something stops</h2>
@@ -190,15 +191,33 @@
             </select>
             <button id="readNow">Read now</button>
           </div>
+          <div class="row" id="channelBoxes">part of the show
+            <label><input type="checkbox" data-ch="co2" checked disabled> CO₂</label>
+            <label><input type="checkbox" data-ch="t" checked disabled> temperature</label>
+            <label><input type="checkbox" data-ch="rh" checked disabled> humidity</label>
+            <label title="needs a BH1750 on the sensor box"><input type="checkbox" data-ch="lux"> light</label>
+            <label title="needs a mic module on the sensor box"><input type="checkbox" data-ch="db"> sound level</label>
+          </div>
           <div id="sensorNow" class="dim"></div>
         </div>
 
         <div id="bodyCfg" hidden>
-          <h3>Sculpture servos</h3>
+          <h3>Sculpture motors</h3>
+          <p id="motorState"></p>
+          <ol class="steps">
+            <li><b>Find the motors.</b> <button id="scanMotors">Find motors</button> Four should answer, ids 1–4.
+              New motors all come as id 1: plug in one at a time and give each its id:
+              id <input type="number" id="oldId" min="0" max="252" value="1"> → <input type="number" id="newId" min="0" max="252" value="2"> <button id="setId">Change id</button></li>
+            <li><b>Open and slack.</b> Let the structure open fully by itself, every string just slack. Then <button id="setSlack">Set slack here</button></li>
+            <li><b>Closed, one string at a time.</b> Wind a motor until its triangle is fully drawn in (◂ ▸ turn it; whichever way winds the string in is right), then <b>Set closed</b>. <b>Test</b> winds it in a little and back.</li>
+          </ol>
           <table class="servos">
-            <thead><tr><th>servo</th><th>pin</th><th>min µs</th><th>max µs</th><th>closed at</th><th></th></tr></thead>
-            <tbody id="servoRows"></tbody>
+            <thead><tr><th>motor</th><th>id</th><th>wind</th><th>closed at</th><th></th></tr></thead>
+            <tbody id="motorRows"></tbody>
           </table>
+          <div class="row">speed <select id="motorSpeed">
+            <option value="10">slow</option><option value="30">normal</option><option value="60">fast</option>
+          </select> <span class="dim">how fast the motors may turn</span></div>
         </div>
 
         <div class="row" id="groupRow" hidden>
@@ -226,6 +245,7 @@
   <label>Runs at <input id="runTimes" placeholder="06:00, 18:00"></label>
   <label>Show length (days) <input type="number" id="showDays" min="1" max="365"></label>
   <label>Glide (seconds) <input type="number" id="glide" min="0" max="3600"></label>
+  <label>Moves <select id="moves"><option value="runs">at the runs (twice a day)</option><option value="live">live (every reading too)</option></select></label>
   <p class="dim" style="margin:4px 0 12px">The show length sets how fast the sculpture opens: fully open around the last day. The glide is how slowly it moves to each new shape.</p>
   <div class="row">
     <button id="saveSettings" class="primary">Save</button>
@@ -238,8 +258,8 @@
 <dialog id="helpDlg">
   <h2>Readings of the data</h2>
   <div id="helpBody"></div>
-  <p><b>MLP</b><br><span class="dim">Your own mapping, learned from examples. Pick a moment on the history slider, open <b>Teach…</b>, shape the sculpture with the six sliders and click <b>Teach this moment</b>. After two or more, a small neural network (an MLP, learning by example as in Wekinator) gives a shape for every moment, taught or not. Slide through the history to preview it before letting it move the sculpture.</span></p>
-  <p class="dim">Every 12 hours each reading looks at everything gathered since the opening and gives six numbers, one per servo. The highlighted one moves the sculpture, scaled by its openness: closed at first, opening as the show lives.</p>
+  <p><b>MLP</b><br><span class="dim">Your own mapping, learned from examples. Pick a moment on the history slider, open <b>Teach…</b>, shape the sculpture with the four sliders (one per string) and click <b>Teach this moment</b>. After two or more, a small neural network (an MLP, learning by example as in Wekinator) gives a shape for every moment, taught or not. Slide through the history to preview it before letting it move the sculpture.</span></p>
+  <p class="dim">Every 12 hours each reading looks at everything gathered since the opening and gives four numbers, one per string: how far to let it out. The highlighted one moves the sculpture, scaled by its openness: closed at first, opening as the show lives.</p>
   <div class="row"><button id="helpClose" class="quiet">Close</button></div>
 </dialog>
 

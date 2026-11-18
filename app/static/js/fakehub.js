@@ -4,23 +4,23 @@
 // day of readings arrives in two minutes. Python twin: sim/fake_hub.py.
 
 import { Room } from "./room.js";
-import { CHANNELS, SERVOS, formatReading, parseLine } from "./protocol.js";
+import { CHANNELS, CORE_CHANNELS, MOTORS, formatReading, parseLine } from "./protocol.js";
 
-const FW = "0.1.0-demo";
+const FW = "0.2.0-demo";
 
 export class FakeHub {
   // onLine(text): the hub "prints" a line.
   constructor({ onLine, speed = 720, startUnix = null, interval = 300, seed = 1,
-                missing = [] } = {}) {
+                missing = CHANNELS.filter((c) => !CORE_CHANNELS.includes(c)) } = {}) {
     this.onLine = onLine || (() => {});
     this.speed = speed;
     this.interval = interval;
-    this.missing = new Set(missing);         // channels with no sensor at all
+    this.missing = new Set(missing);         // channels not in the show (default: only the SCD30's)
     this.room = new Room({ seed });
     this.clock = startUnix ?? Math.floor(Date.now() / 1000);
     this.nextReading = this.clock;
     this.seq = 0;
-    this.pose = new Array(SERVOS).fill(0);   // where the body is
+    this.pose = new Array(MOTORS).fill(1);   // pulls: the body starts closed
     this.from = this.pose.slice();
     this.target = this.pose.slice();
     this.glide = { start: 0, dur: 0 };
@@ -71,9 +71,9 @@ export class FakeHub {
       case "READ": this._reading(true); return;
       case "POSE": {
         const seq = Number(p[1]);
-        const vals = p.slice(2, 8).map(Number);
-        const glide = Number(p[8] ?? 60);
-        if (vals.length !== SERVOS || vals.some((x) => !Number.isFinite(x))) return this.say("ERR bad pose");
+        const vals = p.slice(2, 2 + MOTORS).map(Number);
+        const glide = Number(p[2 + MOTORS] ?? 60);
+        if (p.length !== 3 + MOTORS || vals.length !== MOTORS || vals.some((x) => !Number.isFinite(x))) return this.say("ERR bad pose");
         this.say(`OK POSE ${seq}`);
         this.from = this.pose.slice();
         this.target = vals.map((x) => Math.min(1, Math.max(0, x)));
@@ -81,7 +81,7 @@ export class FakeHub {
         setTimeout(() => this.say(`ACK body ${seq}`), 120);
         return;
       }
-      case "TEST": return this.say(`OK TEST ${p[1] ?? 0}`);
+      case "TEST": return this.say("OK TEST");
       case "RELAX": return this.say("OK RELAX");
       case "CFG": {
         if (p[1] === "sensor") {
@@ -133,7 +133,7 @@ export class FakeHub {
     const real = performanceNow();
     if ((changed && real - this.lastBodyReport > 250) || force || (!moving && changed)) {
       this.lastBodyReport = real;
-      this.say(`BODY ${this.pose.map((a) => a.toFixed(3)).join(" ")} moving=${moving ? 1 : 0}`);
+      this.say(`BODY ${this.pose.map((a) => a.toFixed(3)).join(" ")} moving=${moving ? 1 : 0} homed=1 found=15`);
     }
   }
 }

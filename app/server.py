@@ -74,7 +74,7 @@ class App:
         self.sound.send("/wx/context", *args)
 
     def send_pose(self) -> None:
-        if self.sound is not None and self.pose and len(self.pose) == 6:
+        if self.sound is not None and self.pose and len(self.pose) == 4:   # pulls, 1 = closed
             self.sound.send("/wx/pose", *[float(a) for a in self.pose])
 
     def _sound_loop(self) -> None:
@@ -98,7 +98,7 @@ class App:
             self.show.add_reading(r)               # on disk before anyone sees it
         elif line.startswith("BODY "):
             try:
-                self.pose = [float(x) for x in line.split()[1:7]]
+                self.pose = [float(x) for x in line.split()[1:5]]
                 self.send_pose()
             except ValueError:
                 pass

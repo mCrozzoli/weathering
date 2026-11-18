@@ -1,7 +1,7 @@
 // Weathering — the page. Ties the hub (via a backend), the show's memory,
 // the 12-hour runs and the drawing together.
 
-import { parseLine, formatPose, CHANNELS, CHANNEL_INFO, SERVOS } from "./protocol.js";
+import { parseLine, formatPose, CHANNELS, CORE_CHANNELS, CHANNEL_INFO, MOTORS, toPulls, CLOSED } from "./protocol.js";
 import { runPipeline, labelHours, dueRun, nextRun, soundContext, dataState, ALGORITHMS, ALGORITHM_IDS } from "./pipeline.js";
 import { trainTaught, MIN_EXAMPLES } from "./mlp.js";
 import { drawTwin } from "./twin.js";
@@ -26,7 +26,9 @@ const S = {
   view: null,                   // history: index into runs, or null = now
   running: false,
   taught: null,                 // {net, err} trained on meta.examples, or null
-  teaching: false, teachPose: new Array(6).fill(0.5), tried: false,
+  teaching: false, teachPose: new Array(MOTORS).fill(0.5), tried: false,
+  bodyHomed: true, bodyFound: 15,
+  lastLive: 0,                  // when the last live pose was sent (real ms)
 };
 window.weathering = S;          // for debugging in the console
 
@@ -51,7 +53,9 @@ async function use(backend) {
   S.meta = show.meta;
   S.readings = show.readings;
   S.seen = new Set(show.readings.map(key));
-  S.runs = show.runs;
+  // runs from the six-servo version (before the NPTX sculpture) don't fit
+  S.runs = show.runs.filter((r) => Array.isArray(r.sent) && r.sent.length === MOTORS);
+  if (S.runs.length < show.runs.length) setTimeout(() => toast("Runs from the six-servo version are left out"), 800);
   S.labelsRun = -1;
   S.view = null;
   S.nodes = {};
@@ -88,7 +92,7 @@ function handleLine(line, replay = false) {
   if (!ev) return;
   switch (ev.type) {
     case "reading": if (!replay) addReading(ev.reading); break;
-    case "body": S.body = ev.pose; renderBody(ev.moving); break;
+    case "body": S.body = ev.pose; S.bodyHomed = ev.homed; S.bodyFound = ev.found; renderBody(ev.moving); renderStatus(); break;
     case "node": S.nodes[ev.role] = { seen: Date.now(), fw: ev.fw }; renderStatus(); break;
     case "lost": if (S.nodes[ev.role]) S.nodes[ev.role].seen = 0; renderStatus(); break;
     case "boot": S.nodes.hub = { seen: Date.now(), fw: ev.fw }; renderStatus(); break;
@@ -113,6 +117,7 @@ function addReading(r) {
   renderRoom();
   renderOverlay();
   maybeRun();
+  maybeLive();
 }
 
 // ================================================================ runs
@@ -139,7 +144,7 @@ async function doRun(at, manual) {
       run.poses.taught = S.taught.net.predict(dataState(run)).map((x) => +x.toFixed(3));
       if (S.meta.driving === "taught") {
         run.driving = "taught";
-        run.sent = run.poses.taught.map((a) => +(a * run.openness).toFixed(3));
+        run.sent = toPulls(run.poses.taught, run.openness);
       }
     }
     run.context = soundContext(run, labelHours(S.readings, run));
@@ -153,10 +158,26 @@ async function doRun(at, manual) {
   }
 }
 
-function sendPose(pose) {
-  S.sentPose = pose.slice();
+// Live (optional): between runs the sculpture also follows each new reading,
+// read with everything so far, gliding quickly. Not stored as runs.
+const LIVE_EVERY_MS = 20000, LIVE_GLIDE_S = 20;
+function maybeLive() {
+  if (S.meta.moves !== "live" || S.running || S.view !== null || S.teaching) return;
+  if (Date.now() - S.lastLive < LIVE_EVERY_MS) return;
+  const prev = S.runs.at(-1);
+  if (!prev) return;
+  S.lastLive = Date.now();
+  const run = runPipeline(S.readings, now(), prev, { showDays: S.meta.show_days, driving: S.meta.driving });
+  let pulls = run.sent;
+  if (S.meta.driving === "taught" && S.taught) pulls = toPulls(S.taught.net.predict(dataState(run)), run.openness);
+  sendPose(pulls, LIVE_GLIDE_S);
+}
+
+// pulls: 4 values, 1 = closed
+function sendPose(pulls, glideS = S.meta.glide_s ?? 60) {
+  S.sentPose = pulls.slice();
   S.seq += 1;
-  S.backend.send(formatPose(S.seq, pose, S.meta.glide_s ?? 60));
+  S.backend.send(formatPose(S.seq, pulls, glideS));
   renderBody();
 }
 
@@ -164,7 +185,7 @@ function sendPose(pose) {
 const stage = $("stage");
 const ctx = stage.getContext("2d");
 let ringCache = null, ringKey = "";
-const shown = new Array(SERVOS).fill(0);   // the main twin's pose, eased
+const shown = CLOSED();                    // the main twin's pulls, eased
 let spin = 0, lastT = 0;
 
 function frame(t) {
@@ -182,15 +203,16 @@ function frame(t) {
   drawRings(W, H);
   const target = mainPose();
   const k = 1 - Math.pow(0.94, dt / 16.7);
-  for (let i = 0; i < SERVOS; i++) shown[i] += (target[i] - shown[i]) * k;
+  for (let i = 0; i < MOTORS; i++) shown[i] += (target[i] - shown[i]) * k;
   const C = Math.min(W, H) / 2;
   drawTwin(ctx, W / 2, H / 2, C * 0.3, shown, { color: currentColor(), spin, tilt: 0.44 + Math.sin(t * 0.00006) * 0.08 });
 }
 
+// the pulls the main twin shows
 function mainPose() {
-  if (S.teaching) return S.teachPose;
-  if (S.view !== null) return S.runs[S.view]?.sent || new Array(SERVOS).fill(0);
-  return S.body || S.sentPose || new Array(SERVOS).fill(0);
+  if (S.teaching) return toPulls(S.teachPose, 1);
+  if (S.view !== null) return S.runs[S.view]?.sent || CLOSED();
+  return S.body || S.sentPose || CLOSED();
 }
 
 function currentColor() {
@@ -287,7 +309,9 @@ function renderStatus() {
   const fresh = (role) => S.nodes[role] && (Date.now() - S.nodes[role].seen) / 1000 < (role === "sensor" ? Math.max(NODE_STALE_S, 2.5 * 300) : NODE_STALE_S * 4);
   $("nodes").innerHTML = ["sensor", "body"].map((role) => {
     const ok = b?.kind === "demo" || (S.connected && fresh(role));
-    return `<span title="${role === "sensor" ? "sensor box" : "sculpture"}"><span class="dot ${ok ? "ok" : ""}"></span>${role === "sensor" ? "sensor" : "sculpture"}</span>`;
+    const lame = role === "body" && ok && (!S.bodyHomed || S.bodyFound !== 15);
+    const why = !S.bodyHomed ? "the sculpture needs Set slack (Boards)" : `motors answering: ${[0, 1, 2, 3].filter((k) => S.bodyFound & (1 << k)).map((k) => k + 1).join(", ") || "none"}`;
+    return `<span title="${role === "sensor" ? "sensor box" : lame ? why : "sculpture"}"><span class="dot ${lame ? "warn" : ok ? "ok" : ""}"></span>${role === "sensor" ? "sensor" : "sculpture"}</span>`;
   }).join(" ");
   $("connectBtn").textContent = S.connected && b?.kind !== "demo" ? "Connected" : "Connect";
   if (b?.kind === "local" && S.sound) $("soundState").textContent = { ready: "sound on", starting: "sound starting…", missing: "no SuperCollider: silent", off: "sound off", stopped: "sound stopped" }[S.sound] || "";
@@ -319,7 +343,9 @@ function renderRoom() {
   const last = S.readings.at(-1);
   const since = (last?.unix || 0) - 86400;
   const day = S.readings.filter((r) => r.unix >= since);
-  $("room").innerHTML = CHANNELS.map((c) => {
+  // the show's channels: the SCD30's three, plus any that boards send
+  const chans = CHANNELS.filter((c) => CORE_CHANNELS.includes(c) || day.some((r) => r[c] !== null && r[c] !== undefined));
+  $("room").innerHTML = chans.map((c) => {
     const info = CHANNEL_INFO[c];
     const v = last?.[c];
     const val = v === null || v === undefined ? `<span class="dim">no sensor</span>` : `${Number(v).toFixed(info.digits)} <span class="dim">${info.unit}</span>`;
@@ -362,7 +388,8 @@ function renderAlgos() {
     cv.width = w * dpr; cv.height = w * dpr;
     const g = cv.getContext("2d");
     g.scale(dpr, dpr);
-    drawTwin(g, w / 2, w / 2, w * 0.32, run?.poses?.[id] || new Array(SERVOS).fill(0), { color: [150, 175, 190], glow: false, faint: !run });
+    const shape = run?.poses?.[id];
+    drawTwin(g, w / 2, w / 2, w * 0.32, shape ? toPulls(shape, 1) : CLOSED(), { color: [150, 175, 190], glow: false, faint: !run, strings: false });
   }
 }
 
@@ -374,7 +401,7 @@ async function setDriving(id) {
   const run = S.runs.at(-1);
   if (run) {
     run.driving = id;
-    if (run.poses[id]) sendPose(run.poses[id].map((a) => +(a * run.openness).toFixed(3)));
+    if (run.poses[id]) { run.sent = toPulls(run.poses[id], run.openness); sendPose(run.sent); }
   }
   renderAlgos();
   toast(`${CARDS[id].label} moves the sculpture now`);
@@ -402,9 +429,9 @@ function renderHistory() {
 function renderBody(moving) {
   const p = S.body || S.sentPose;
   $("touchBtn").hidden = S.backend?.kind !== "local";
-  $("bodyState").textContent = p
-    ? `${moving ? "moving to" : "at"} ${p.map((a) => Math.round(a * 100)).join(" · ")}`
-    : "closed";
+  $("bodyState").textContent = !S.bodyHomed
+    ? "needs calibrating: Boards → Sculpture → Set slack"
+    : p ? `pulls ${moving ? "→ " : ""}${p.map((a) => a.toFixed(2)).join(" · ")}` : "closed";
 }
 
 // ================================================================== ui
@@ -446,7 +473,7 @@ function wireUi() {
   $("teachBtn").onclick = () => (S.teaching ? closeTeach(true) : openTeach());
   $("teachDone").onclick = () => closeTeach(true);
   $("teachAdd").onclick = teachMoment;
-  $("teachTry").onclick = () => { S.tried = true; sendPose(S.teachPose); toast("The sculpture takes this shape"); };
+  $("teachTry").onclick = () => { S.tried = true; sendPose(toPulls(S.teachPose, 1), 10); toast("The sculpture takes this shape"); };
   addEventListener("resize", () => { renderRoom(); renderAlgos(); });
   wireBoards();
 }
@@ -497,6 +524,7 @@ function openSettings() {
   $("runTimes").value = (S.meta.run_times || []).join(", ");
   $("showDays").value = S.meta.show_days ?? 14;
   $("glide").value = S.meta.glide_s ?? 60;
+  $("moves").value = S.meta.moves === "live" ? "live" : "runs";
   $("resetDemo").hidden = S.backend.kind !== "demo";
   $("settingsDlg").showModal();
 }
@@ -504,7 +532,8 @@ function openSettings() {
 async function saveSettings() {
   const times = $("runTimes").value.split(/[,\s]+/).filter((s) => /^\d{1,2}:\d{2}$/.test(s));
   if (!times.length) return toast("Run times look like 06:00, 18:00");
-  const m = { run_times: times, show_days: Math.max(1, Number($("showDays").value) || 14), glide_s: Math.max(0, Number($("glide").value) || 0) };
+  const m = { run_times: times, show_days: Math.max(1, Number($("showDays").value) || 14), glide_s: Math.max(0, Number($("glide").value) || 0),
+              moves: $("moves").value === "live" ? "live" : "runs" };
   Object.assign(S.meta, m);
   await S.backend.saveSettings(m);
   $("settingsDlg").close();
@@ -523,7 +552,7 @@ function toast(text) {
 
 // ================================================================ teach
 // The twin is the teaching surface: pick a moment (the history slider),
-// shape the sculpture with six sliders, teach. The taught mapping (mlp.js)
+// shape the sculpture with four sliders (one per string), teach. The taught mapping (mlp.js)
 // learns from those pairs and gives a shape for every moment.
 function recomputeTaught() {
   S.taught = trainTaught(S.meta.examples || []);
@@ -538,7 +567,7 @@ function teachRun() { return S.view !== null ? S.runs[S.view] : S.runs.at(-1); }
 function openTeach() {
   const r = teachRun();
   if (!r) return toast("Teaching needs a first run");
-  const shape = r.poses.taught || r.poses[r.driving] || r.poses.som || new Array(6).fill(0.5);
+  const shape = r.poses.taught || r.poses[r.driving] || r.poses.som || new Array(MOTORS).fill(0.5);
   S.teachPose = shape.map((x) => +x);
   S.teaching = true;
   $("teach").hidden = false;
@@ -555,11 +584,11 @@ function closeTeach(restore) {
 
 function renderTeach() {
   const r = teachRun();
-  $("teachWhen").textContent = r ? `For run ${r.run} · ${fmtShort(r.unix)}${S.view === null ? " (now)" : ""}. Shape the sculpture, then teach.` : "";
+  $("teachWhen").textContent = r ? `For run ${r.run} · ${fmtShort(r.unix)}${S.view === null ? " (now)" : ""}. Each slider lets a string out (left: pulled in). Shape it, then teach.` : "";
   const box = $("teachSliders");
   if (!box.children.length) {
-    box.innerHTML = Array.from({ length: SERVOS }, (_, k) =>
-      `<label><span>servo ${k + 1}</span><input type="range" min="0" max="1" step="0.01" data-k="${k}"><span class="dim" data-v="${k}"></span></label>`).join("");
+    box.innerHTML = Array.from({ length: MOTORS }, (_, k) =>
+      `<label><span>string ${k + 1}</span><input type="range" min="0" max="1" step="0.01" data-k="${k}"><span class="dim" data-v="${k}"></span></label>`).join("");
     for (const inp of box.querySelectorAll("input")) {
       inp.oninput = () => { S.teachPose[+inp.dataset.k] = +inp.value; box.querySelector(`[data-v="${inp.dataset.k}"]`).textContent = (+inp.value).toFixed(2); };
     }
@@ -632,10 +661,11 @@ function wireBoards() {
     try {
       const { reply } = await boards.readNow(B.port);
       const r = parseLine(reply).reading;
-      $("sensorNow").textContent = CHANNELS.map((c) => `${CHANNEL_INFO[c].label} ${r[c] ?? "—"}${r.sim.includes(c) ? " (sim)" : ""}`).join(" · ");
+      $("sensorNow").textContent = CHANNELS.filter((c) => r[c] !== null).map((c) => `${CHANNEL_INFO[c].label} ${r[c] ?? "—"}${r.sim.includes(c) ? " (sim)" : ""}`).join(" · ");
     } catch (e) { blog(`! ${e.message}`); }
   };
   $("saveBoard").onclick = saveBoard;
+  wireMotorButtons();
 }
 
 async function inspectBoard() {
@@ -679,25 +709,69 @@ async function renderBoard() {
   $("saveBoard").hidden = !known;
   $("group").value = b.group || 1;
   if (b.role === "sensor") $("interval").value = String(b.settings.interval || 300);
-  if (b.role === "body") renderServos(b.settings);
+  if (b.role === "sensor") {
+    const chans = String(b.settings.channels || "co2,t,rh").split(",");
+    for (const cb of $("channelBoxes").querySelectorAll("input")) cb.checked = chans.includes(cb.dataset.ch);
+  }
+  if (b.role === "body") renderMotors(b.settings);
 }
 
-function renderServos(settings) {
-  const tb = $("servoRows");
+// The sculpture: four Dynamixel motors, calibrated here (docs/PROTOCOL.md, Body board).
+function renderMotors(settings) {
+  const homed = settings.homed === "1", found = Number(settings.found ?? 0);
+  const motors = [1, 2, 3, 4].map((k) => boards.parseMotor(settings[`m${k}`]));
+  const answering = [0, 1, 2, 3].filter((k) => found & (1 << k)).map((k) => k + 1);
+  $("motorState").innerHTML = `motors answering: <b>${answering.join(", ") || "none"}</b> of 4 · `
+    + (homed ? "slack set" : "<b>slack not set</b> (step 2)")
+    + ` · closed set for ${motors.filter((m) => m.travel).length} of 4`;
+  $("motorSpeed").value = ["10", "30", "60"].includes(String(settings.speed)) ? String(settings.speed) : "30";
+  const tb = $("motorRows");
   tb.innerHTML = "";
-  for (let k = 0; k < SERVOS; k++) {
-    const s = boards.parseServo(settings[`s${k}`]);
+  motors.forEach((m, i) => {
+    const k = i + 1, ok = found & (1 << i);
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${k + 1}</td><td><input type="number" data-f="pin" value="${s.pin}"></td>
-      <td><input type="number" data-f="min" value="${s.min}"></td><td><input type="number" data-f="max" value="${s.max}"></td>
-      <td><select data-f="closed"><option value="0" ${s.closed ? "" : "selected"}>min end</option><option value="1" ${s.closed ? "selected" : ""}>max end</option></select></td>
-      <td><button data-test="${k}">Test</button></td>`;
     tr.dataset.k = k;
+    tr.innerHTML = `<td>${k}${ok ? "" : ' <span class="dim">(silent)</span>'}</td>
+      <td><input type="number" data-f="id" min="0" max="252" value="${m.id}"></td>
+      <td class="jog"><button data-jog="-512" title="1/8 turn">◂◂</button><button data-jog="-64">◂</button><button data-jog="64">▸</button><button data-jog="512" title="1/8 turn">▸▸</button></td>
+      <td>${m.travel ? `${(Math.abs(m.travel) / boards.TICKS_PER_TURN).toFixed(2)} turns` : '<span class="dim">not set</span>'}</td>
+      <td><button data-closed="${k}">Set closed</button> <button data-test="${k}">Test</button></td>`;
     tb.append(tr);
+  });
+  for (const b of tb.querySelectorAll("button[data-jog]")) {
+    b.onclick = () => bodyAction({ jog: `${b.closest("tr").dataset.k},${b.dataset.jog}` }, null);
+  }
+  for (const b of tb.querySelectorAll("button[data-closed]")) {
+    b.onclick = () => bodyAction({ closed: b.dataset.closed }, `motor ${b.dataset.closed}: closed point set`);
   }
   for (const b of tb.querySelectorAll("button[data-test]")) {
-    b.onclick = async () => { try { await boards.testServo(B.port, Number(b.dataset.test)); blog(`servo ${Number(b.dataset.test) + 1} wiggled`); } catch (e) { blog(`! ${e.message}`); } };
+    b.onclick = async () => { try { await boards.testMotor(B.port, Number(b.dataset.test)); blog(`motor ${b.dataset.test}: in a little and back`); } catch (e) { blog(`! ${e.message}`); } };
   }
+}
+
+// One calibration step on the board, then show what it says now.
+async function bodyAction(settings, done) {
+  try {
+    await boards.saveSettings(B.port, settings);
+    if (done) { blog(done); toast(done); }
+    const b = await boards.info(B.port);
+    B.board.settings = b.settings;
+    renderMotors(b.settings);
+  } catch (e) { blog(`! ${e.message}`); toast(e.message); }
+}
+
+function wireMotorButtons() {
+  $("scanMotors").onclick = async () => {
+    blog("looking for motors (≈ 6 s)…");
+    try { (await boards.scan(B.port)).forEach(blog); } catch (e) { blog(`! ${e.message}`); }
+    await bodyAction({ speed: $("motorSpeed").value }, null);
+  };
+  $("setId").onclick = () => bodyAction({ setid: `${Number($("oldId").value) | 0},${Number($("newId").value) | 0}` }, "id changed");
+  $("setSlack").onclick = () => {
+    if (!confirm("Is the structure fully open, with every string just slack?")) return;
+    bodyAction({ slack: "all" }, "slack set: this is pull 0 for every motor");
+  };
+  $("motorSpeed").onchange = () => bodyAction({ speed: $("motorSpeed").value }, null);
 }
 
 async function installRole(role) {
@@ -725,12 +799,13 @@ async function installRole(role) {
 async function saveBoard() {
   const b = B.board;
   const settings = { group: Math.max(1, Math.min(250, Number($("group").value) || 1)) };
-  if (b.role === "sensor") settings.interval = Number($("interval").value);
+  if (b.role === "sensor") {
+    settings.interval = Number($("interval").value);
+    settings.channels = [...$("channelBoxes").querySelectorAll("input")].filter((cb) => cb.checked).map((cb) => cb.dataset.ch).join(",");
+  }
   if (b.role === "body") {
-    for (const tr of $("servoRows").children) {
-      const get = (f) => Number(tr.querySelector(`[data-f="${f}"]`).value);
-      settings[`s${tr.dataset.k}`] = boards.formatServo({ pin: get("pin"), min: get("min"), max: get("max"), closed: get("closed") });
-    }
+    settings.ids = [...$("motorRows").children].map((tr) => Number(tr.querySelector('[data-f="id"]').value) | 0).join(",");
+    settings.speed = $("motorSpeed").value;
   }
   try {
     await boards.saveSettings(B.port, settings);

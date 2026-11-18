@@ -130,7 +130,7 @@ def test_local_app_with_the_pretend_hub(tmp_path):
         st = _get(base + "/api/state")
         assert st["link"]["connected"] and st["show"]["name"] == "e2e"
 
-        assert _post(base + "/api/send", {"line": "POSE 9 0.1 0.2 0.3 0.4 0.5 0.6 0"})["ok"]
+        assert _post(base + "/api/send", {"line": "POSE 9 0.1 0.2 0.3 0.4 0"})["ok"]
         deadline = time.time() + 5
         while time.time() < deadline and not any(e.get("line") == "ACK body 9" for e in events):
             time.sleep(0.1)
@@ -195,8 +195,8 @@ def test_runs_and_pose_reach_the_sound(tmp_path):
         assert addr == "/wx/context"
         d = dict(zip(args[0::2], args[1::2]))
         assert d["kind"] == 2.0 and d["openness"] == 0.4
-        app._on_line("BODY 0.1 0.2 0.3 0.4 0.5 0.6 moving=1")
-        assert snd.sent[-1] == ("/wx/pose", (0.1, 0.2, 0.3, 0.4, 0.5, 0.6))
+        app._on_line("BODY 0.1 0.2 0.3 0.4 moving=1 homed=1 found=15")
+        assert snd.sent[-1] == ("/wx/pose", (0.1, 0.2, 0.3, 0.4))
         assert _post(base + "/api/touch", {})["ok"] is True
         assert snd.sent[-1][0] == "/wx/touch"
         # a restart remembers the last context, ready to re-send

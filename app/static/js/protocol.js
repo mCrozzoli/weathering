@@ -11,15 +11,24 @@ export const CHANNEL_INFO = {
   db:  { label: "Sound", unit: "dB", digits: 0 },
 };
 export const ROLES = ["sensor", "hub", "body"];
-export const SERVOS = 6;
+export const MOTORS = 4;
+// the channels a show starts with (the SCD30); lux and db can be added later
+export const CORE_CHANNELS = ["co2", "t", "rh"];
+
+// A shape is how far each string is let out (0 = closed, 1 = fully open);
+// the body is sent PULLS (0 = slack/open, 1 = closed). The show opens with
+// its openness: pulls = 1 − openness × shape.
+export const toPulls = (shape, openness = 1) => shape.map((s) => +(1 - openness * Math.min(1, Math.max(0, s))).toFixed(3));
+export const CLOSED = () => new Array(MOTORS).fill(1);
 
 const num = (s) => (s === undefined || s === "" ? null : Number(s));
 const fix = (x, d = 3) => Number(x).toFixed(d);
 
 // ------------------------------------------------------------- formatting
-export function formatPose(seq, pose, glideS = 60) {
-  if (!Array.isArray(pose) || pose.length !== SERVOS) throw new Error("a pose has 6 values");
-  const vals = pose.map((a) => fix(Math.min(1, Math.max(0, Number(a) || 0))));
+// pulls: 4 values, 1 = closed
+export function formatPose(seq, pulls, glideS = 60) {
+  if (!Array.isArray(pulls) || pulls.length !== MOTORS) throw new Error("a pose has 4 pulls");
+  const vals = pulls.map((a) => fix(Math.min(1, Math.max(0, Number(a) || 0))));
   return `POSE ${seq | 0} ${vals.join(" ")} ${Math.max(0, Math.min(3600, Math.round(glideS)))}`;
 }
 export const formatTime = (unix) => `TIME ${Math.floor(unix)}`;
@@ -63,9 +72,12 @@ export function parseLine(raw) {
       return { type: "reading", reading };
     }
     case "BODY": {
-      const pose = parts.slice(1, 7).map(Number);
-      const f = kv(parts.slice(7));
-      return { type: "body", pose, moving: f.moving === "1" };
+      // BODY <p1> … <p4> moving=<0|1> homed=<0|1> found=<mask>
+      const pose = parts.slice(1, 1 + MOTORS).map(Number);
+      const f = kv(parts.slice(1 + MOTORS));
+      if (pose.length !== MOTORS || pose.some((x) => !Number.isFinite(x))) return { type: "bad", line };
+      return { type: "body", pose, moving: f.moving === "1", homed: f.homed !== "0",
+               found: f.found === undefined ? 15 : Number(f.found) };
     }
     case "NODE":
       // NODE <role> <mac> fw <version> rssi <dBm>

@@ -2,10 +2,12 @@
 //
 // Reads the room every `interval` seconds and sends the reading to the hub
 // over ESP-NOW. Sensors are found at boot (I2C, default SDA 21 / SCL 22):
-//   SCD41  (0x62)         co2 (ppm), t (°C), rh (%)
+//   SCD30  (0x61)         co2 (ppm), t (°C), rh (%)   (the sculpture's kit; bus at 50 kHz)
+//   SCD41  (0x62)         the same three, if there is no SCD30
 //   BH1750 (0x23 / 0x5C)  lux
 //   analog mic module     db (dB re. full scale over 1 s; 0 = loudest), on mic_pin (34)
-// Whatever is missing is SIMULATED (indoor values with a day/night cycle) and
+// Only the channels in `channels` (default co2,t,rh) are part of the show;
+// of those, whatever is missing is SIMULATED (indoor values with a day/night cycle) and
 // flagged, so a bare board already works. No libraries beyond the core:
 // the two I2C sensors take a few lines of Wire each.
 //
@@ -17,7 +19,8 @@
 //
 // USB (115200): INFO, SET <key>=<value> ..., PING, READ (a reading now,
 // printed as an R line). Scheduled readings are echoed as "LOG R ...".
-// SET keys: group, interval (10-3600 s), sda, scl, mic_pin, simulate (auto|all|none).
+// SET keys: group, channels (e.g. co2,t,rh,lux,db), interval (10-3600 s), sda, scl,
+// mic_pin, simulate (auto|all|none).
 
 #include <WiFi.h>
 #include <esp_now.h>
@@ -34,7 +37,10 @@
 #define OLD_AFTER_MS   60000       // sent this long after it was taken: "old"
 #define SEQ_BLOCK      64          // seq is saved to flash once per block
 
+#define SCD30_ADDR     0x61
 #define SCD41_ADDR     0x62
+#define I2C_HZ         50000       // the SCD30 stretches the clock: keep the bus slow
+#define CHANNELS_DEFAULT 0x07      // co2, t, rh
 #define SCD41_POLL_MS  5000
 #define SCD41_STALE_MS 60000       // no fresh data this long: treated as missing
 
@@ -47,6 +53,7 @@ static uint8_t  group    = 1;
 static uint16_t interval = 300;
 static uint8_t  sda_pin  = 21, scl_pin = 22, mic_pin = 34;
 static uint8_t  simulate = SIM_AUTO;
+static uint8_t  channels = CHANNELS_DEFAULT;   // bit i = channel i is part of the show
 static uint16_t seq      = 0;      // next reading's number
 static uint16_t seq_saved = 0;     // flash holds this as the next block start
 
@@ -129,6 +136,7 @@ static uint32_t unix_at(uint32_t ms) {
 
 // ---- sensors ------------------------------------------------------------------
 static bool    have_scd41 = false;
+static bool    have_scd30 = false;
 static uint8_t bh1750_addr = 0;        // 0: none
 static bool    have_mic = false;
 
@@ -159,10 +167,10 @@ static uint8_t scd_crc(const uint8_t *d) {
 }
 
 // Reads n words (each followed by its CRC) after a command.
-static bool scd_read_words(uint16_t cmd, uint16_t *words, int n) {
-  if (!i2c_cmd16(SCD41_ADDR, cmd)) return false;
-  delay(2);
-  if (Wire.requestFrom((int)SCD41_ADDR, n * 3) != n * 3) return false;
+static bool scd_read_words(uint16_t cmd, uint16_t *words, int n, uint8_t addr = SCD41_ADDR) {
+  if (!i2c_cmd16(addr, cmd)) return false;
+  delay(addr == SCD30_ADDR ? 4 : 2);       // the SCD30 wants >= 3 ms
+  if (Wire.requestFrom((int)addr, n * 3) != n * 3) return false;
   for (int i = 0; i < n; i++) {
     uint8_t b[3];
     for (int j = 0; j < 3; j++) b[j] = Wire.read();
@@ -172,7 +180,31 @@ static bool scd_read_words(uint16_t cmd, uint16_t *words, int n) {
   return true;
 }
 
+// SCD30: a command with one argument word (+ its CRC).
+static bool scd30_cmd_arg(uint16_t cmd, uint16_t arg) {
+  uint8_t a[2] = {(uint8_t)(arg >> 8), (uint8_t)(arg & 0xFF)};
+  Wire.beginTransmission(SCD30_ADDR);
+  Wire.write(cmd >> 8); Wire.write(cmd & 0xFF);
+  Wire.write(a[0]); Wire.write(a[1]); Wire.write(scd_crc(a));
+  return Wire.endTransmission() == 0;
+}
+
+static void scd30_poll() {
+  uint16_t ready, w[6];
+  if (!scd_read_words(0x0202, &ready, 1, SCD30_ADDR) || ready != 1) return;   // data ready
+  if (!scd_read_words(0x0300, w, 6, SCD30_ADDR)) return;                      // read measurement
+  float f[3];
+  for (int i = 0; i < 3; i++) {
+    uint32_t u = (uint32_t)w[2 * i] << 16 | w[2 * i + 1];
+    memcpy(&f[i], &u, 4);                                   // big-endian IEEE floats
+  }
+  if (!(f[0] > 0 && f[0] < 40000)) return;
+  scd_v[0] = f[0]; scd_v[1] = f[1]; scd_v[2] = f[2];
+  scd_ms = millis();
+}
+
 static void scd_poll() {
+  if (have_scd30) { scd30_poll(); return; }
   uint16_t ready, w[3];
   if (!scd_read_words(0xE4B8, &ready, 1)) return;           // get_data_ready_status
   if ((ready & 0x07FF) == 0) return;
@@ -224,8 +256,17 @@ static float mic_db() {
 
 static void detect_sensors() {
   Wire.end();
-  Wire.begin((int)sda_pin, (int)scl_pin, (uint32_t)100000);
-  have_scd41 = i2c_present(SCD41_ADDR);
+  Wire.begin((int)sda_pin, (int)scl_pin, (uint32_t)I2C_HZ);
+  Wire.setTimeOut(200);                          // clock stretching
+  have_scd30 = i2c_present(SCD30_ADDR);
+  if (have_scd30) {
+    scd30_cmd_arg(0x4600, 2);                    // measurement interval 2 s
+    delay(20);
+    have_scd30 = scd30_cmd_arg(0x0010, 0);       // continuous measurement, no pressure compensation
+    scd_ms = 0;
+    next_scd_poll_ms = millis() + 2500;
+  }
+  have_scd41 = !have_scd30 && i2c_present(SCD41_ADDR);
   if (have_scd41) {
     i2c_cmd16(SCD41_ADDR, 0x3F86);                // stop_periodic_measurement (if it was running)
     delay(500);
@@ -247,7 +288,7 @@ static bool real(int ch) {
   if (simulate == SIM_ALL) return false;
   switch (ch) {
     case WX_CO2: case WX_T: case WX_RH:
-      return have_scd41 && scd_ms && millis() - scd_ms < SCD41_STALE_MS;
+      return (have_scd30 || have_scd41) && scd_ms && millis() - scd_ms < SCD41_STALE_MS;
     case WX_LUX: return bh1750_addr != 0;
     case WX_DB:  return have_mic || simulate == SIM_NONE;   // "none": trust the mic pin
   }
@@ -310,6 +351,7 @@ static Reading take_reading() {
   float sim[WX_CHANNELS];
   simulate_into(sim);
   for (int i = 0; i < WX_CHANNELS; i++) {
+    if (!(channels & (1 << i))) continue;   // not part of the show
     float v = NAN;
     if (real(i)) {
       if (i <= WX_RH) v = scd_v[i];
@@ -382,6 +424,7 @@ static bool io_pin(long p) { return p >= 0 && p <= 33 && !(p >= 6 && p <= 11) &&
 // Applies "key=value ..." (all or nothing); writes "OK SET" or "ERR ..." to out.
 static void apply_set(char *args, char *out, size_t size) {
   long g = group, iv = interval, sda = sda_pin, scl = scl_pin, mic = mic_pin, sim = simulate;
+  long ch = channels;
   bool any = false;
   for (char *tok = strtok(args, " "); tok; tok = strtok(nullptr, " ")) {
     char *k, *v;
@@ -389,6 +432,15 @@ static void apply_set(char *args, char *out, size_t size) {
     if (!wx_split_kv(tok, &k, &v)) { snprintf(out, size, "ERR bad pair %s", tok); return; }
     if (strcmp(k, "group") == 0) {
       if (!wx_parse_long(v, WX_GROUP_MIN, WX_GROUP_MAX, &g)) { snprintf(out, size, "ERR group 1-250"); return; }
+    } else if (strcmp(k, "channels") == 0) {
+      ch = 0;
+      for (char *c = strtok_r(v, ",", &v); c; c = strtok_r(nullptr, ",", &v)) {
+        int found = -1;
+        for (int i = 0; i < WX_CHANNELS; i++) if (strcmp(c, WX_CHANNEL_NAMES[i]) == 0) found = i;
+        if (found < 0) { snprintf(out, size, "ERR channels: co2,t,rh,lux,db"); return; }
+        ch |= 1 << found;
+      }
+      if (!ch) { snprintf(out, size, "ERR channels: at least one"); return; }
     } else if (strcmp(k, "interval") == 0) {
       if (!wx_parse_long(v, 10, 3600, &iv)) { snprintf(out, size, "ERR interval 10-3600"); return; }
     } else if (strcmp(k, "sda") == 0 || strcmp(k, "scl") == 0) {
@@ -410,7 +462,8 @@ static void apply_set(char *args, char *out, size_t size) {
   if (sda == scl) { snprintf(out, size, "ERR sda and scl are the same pin"); return; }
   bool pins = sda != sda_pin || scl != scl_pin || mic != mic_pin;
   if (iv != interval) next_read_ms = millis() + iv * 1000UL;
-  group = g; interval = iv; sda_pin = sda; scl_pin = scl; mic_pin = mic; simulate = sim;
+  group = g; interval = iv; sda_pin = sda; scl_pin = scl; mic_pin = mic; simulate = sim; channels = (uint8_t)ch;
+  prefs.putUChar("channels", channels);
   prefs.putUChar("group", group);
   prefs.putUShort("interval", interval);
   prefs.putUChar("sda", sda_pin);
@@ -423,7 +476,7 @@ static void apply_set(char *args, char *out, size_t size) {
 
 // ---- USB --------------------------------------------------------------------------
 static void list_sensors(char *out, size_t size) {
-  int n = snprintf(out, size, "%s%s%s", have_scd41 ? ",scd41" : "", bh1750_addr ? ",bh1750" : "",
+  int n = snprintf(out, size, "%s%s%s%s", have_scd30 ? ",scd30" : "", have_scd41 ? ",scd41" : "", bh1750_addr ? ",bh1750" : "",
                    have_mic ? ",mic" : "");
   if (!n) snprintf(out, size, "none");
   else memmove(out, out + 1, n);           // drop the leading comma
@@ -433,18 +486,21 @@ static void list_sim(char *out, size_t size) {
   int n = 0;
   out[0] = 0;
   for (int i = 0; i < WX_CHANNELS; i++) {
-    if (!real(i) && simulate != SIM_NONE) n += snprintf(out + n, size - n, "%s%s", n ? "," : "", WX_CHANNEL_NAMES[i]);
+    if ((channels & (1 << i)) && !real(i) && simulate != SIM_NONE) n += snprintf(out + n, size - n, "%s%s", n ? "," : "", WX_CHANNEL_NAMES[i]);
   }
   if (!n) snprintf(out, size, "none");
 }
 
 static void print_info() {
-  char sensors[32], sim[32];
+  char sensors[40], sim[32], chs[32];
   list_sensors(sensors, sizeof(sensors));
   list_sim(sim, sizeof(sim));
-  Serial.printf("INFO sensor fw %s mac %s group %u interval=%u sensors=%s sim=%s simulate=%s "
+  int n = 0;
+  for (int i = 0; i < WX_CHANNELS; i++)
+    if (channels & (1 << i)) n += snprintf(chs + n, sizeof(chs) - n, "%s%s", n ? "," : "", WX_CHANNEL_NAMES[i]);
+  Serial.printf("INFO sensor fw %s mac %s group %u interval=%u channels=%s sensors=%s sim=%s simulate=%s "
                 "sda=%u scl=%u mic_pin=%u backlog=%u hub=%d time=%lu\n",
-                FW_VERSION, WiFi.macAddress().c_str(), group, interval, sensors, sim,
+                FW_VERSION, WiFi.macAddress().c_str(), group, interval, chs, sensors, sim,
                 SIM_NAMES[simulate], sda_pin, scl_pin, mic_pin, bl_n, hub_alive() ? 1 : 0,
                 (unsigned long)unix_at(millis()));
 }
@@ -534,6 +590,8 @@ void setup() {
   scl_pin  = prefs.getUChar("scl", 22);
   mic_pin  = prefs.getUChar("mic_pin", 34);
   simulate = prefs.getUChar("simulate", SIM_AUTO);
+  channels = prefs.getUChar("channels", CHANNELS_DEFAULT);
+  if (!channels || channels >= (1 << WX_CHANNELS)) channels = CHANNELS_DEFAULT;
   if (group < WX_GROUP_MIN || group > WX_GROUP_MAX) group = 1;
   if (interval < 10 || interval > 3600) interval = 300;
   if (!io_pin(sda_pin) || !io_pin(scl_pin) || sda_pin == scl_pin) { sda_pin = 21; scl_pin = 22; }
@@ -551,10 +609,10 @@ void setup() {
 
   detect_sensors();
   Serial.printf("FW weathering_sensor %s mac %s group %u\n", FW_VERSION, WiFi.macAddress().c_str(), group);
-  char sensors[32], sim[32];
+  char sensors[40], sim[32];
   list_sensors(sensors, sizeof(sensors));
   list_sim(sim, sizeof(sim));
-  Serial.printf("LOG sensors=%s sim=%s (the SCD41's first value comes after ~5 s)\n", sensors, sim);
+  Serial.printf("LOG sensors=%s sim=%s (the CO2 sensor's first value comes after a few s)\n", sensors, sim);
   send_hello();
   next_read_ms = millis() + 10000;         // first reading soon after boot
 }
@@ -565,9 +623,9 @@ void loop() {
   while (pop_rx(&it)) handle_radio(&it);
 
   uint32_t now = millis();
-  if (have_scd41 && simulate != SIM_ALL && (int32_t)(now - next_scd_poll_ms) >= 0) {
+  if ((have_scd41 || have_scd30) && simulate != SIM_ALL && (int32_t)(now - next_scd_poll_ms) >= 0) {
     scd_poll();
-    next_scd_poll_ms = now + SCD41_POLL_MS;
+    next_scd_poll_ms = now + (have_scd30 ? 2500 : SCD41_POLL_MS);
   }
   if ((int32_t)(now - next_read_ms) >= 0) {
     next_read_ms += interval * 1000UL;
