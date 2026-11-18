@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Weathering — step by step</title>
+<style>
+  @page { size: A4; margin: 16mm 16mm 18mm; }
+  :root { --ink: #16191c; --dim: #5d6a74; --line: #d6dce0; --accent: #2f7d95; --warn: #a2452f; --soft: #f2f5f6; }
+  * { box-sizing: border-box; }
+  body { font: 10.4pt/1.5 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--ink); margin: 0; }
+  h1 { font-size: 24pt; margin: 0 0 4px; letter-spacing: .01em; }
+  h2 { font-size: 15pt; margin: 22px 0 6px; padding-top: 6px; border-top: 2px solid var(--ink); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 14px 0 4px; break-after: avoid; }
+  p { margin: 5px 0; }
+  .sub { color: var(--dim); font-size: 11pt; margin-bottom: 14px; }
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 6px 0; }
+  ol.steps > li { counter-increment: s; position: relative; padding: 4px 0 6px 30px; break-inside: avoid; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 4px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--ink); color: #fff; font-size: 9pt; font-weight: 600; text-align: center; line-height: 20px; }
+  .see { color: var(--accent); }
+  .see::before { content: "✓ You should see: "; font-weight: 600; }
+  .warn { border-left: 3px solid var(--warn); background: #fbf1ee; padding: 6px 10px; margin: 8px 0; break-inside: avoid; }
+  .note { border-left: 3px solid var(--accent); background: var(--soft); padding: 6px 10px; margin: 8px 0; break-inside: avoid; }
+  code, kbd { font: 9.4pt ui-monospace, Menlo, monospace; background: var(--soft); padding: 0 3px; border-radius: 3px; }
+  pre { font: 9pt/1.45 ui-monospace, Menlo, monospace; background: var(--soft); padding: 7px 9px; border-radius: 4px; white-space: pre-wrap; margin: 6px 0; break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 8px; font-size: 9.6pt; break-inside: avoid; }
+  th, td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; background: var(--soft); }
+  img { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; display: block; margin: 8px 0; }
+  figure { margin: 6px 0 10px; break-inside: avoid; }
+  figcaption { color: var(--dim); font-size: 9pt; }
+  .toc { columns: 2; font-size: 10pt; margin: 8px 0 4px; }
+  .toc div { break-inside: avoid; }
+  .page-break { break-before: page; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin: 8px 0; break-inside: avoid; }
+  .check { list-style: none; padding-left: 0; }
+  .check li::before { content: "☐ "; }
+</style>
+</head>
+<body>
+
+<h1>Weathering — step by step</h1>
+<p class="sub">From an empty Mac and a box of parts to the running installation. Florian Goeschke (NPTX) · Miguel Angel Crozzoli (data, software) · guide for version 0.2 · November 2026</p>
+
+<figure><img style="max-width:88%;margin:8px auto" src="img/live.png" alt="The app's Live view: the twin inside the day rings, the room, the readings and the sculpture's pulls.">
+<figcaption>What it looks like when it runs: the twin of the sculpture inside one ring per day, the room's CO₂, temperature and humidity, the readings of the data, and the pulls the motors are given.</figcaption></figure>
+
+<div class="toc">
+  <div><b>A</b> Install on the computer (once) · about 30 min</div>
+  <div><b>B</b> Try it without hardware · 5 min</div>
+  <div><b>C</b> Install the three boards · 15 min</div>
+  <div><b>D</b> Wire the sensor box</div>
+  <div><b>E</b> Wire and calibrate the sculpture</div>
+  <div><b>F</b> Sound: piezos and exciters</div>
+  <div><b>G</b> Start the show</div>
+  <div><b>H</b> Leave it running for weeks</div>
+  <div><b>I</b> If something goes wrong</div>
+</div>
+
+<div class="note"><b>How it fits together.</b> The <b>sensor box</b> (an ESP32 with the SCD30) reads the room every 5 minutes and sends it by radio to the <b>hub</b> (an ESP32 on a USB cable to the computer). The computer keeps every reading. Twice a day (06:00 and 18:00) it reads everything again and sends the <b>sculpture</b> (an ESP32 with the four Dynamixel motors) four pulls by radio — one per string. The show starts closed and opens as it lives. SuperCollider plays the four panels' feedback, silent until someone touches the sculpture.</div>
+<figure><img style="max-width:88%;margin:8px auto" src="img/diagram.png" alt="Sensor box sends by radio to the hub; the hub is on USB to the computer; the hub sends by radio to the sculpture; a sound card links the computer to the piezos and exciters."></figure>
+
+<!-- ================================================================== A -->
+<h2 class="page-break">A · Install on the computer (once)</h2>
+<p>A Mac with macOS 12 or newer. You need to be online for this part.</p>
+
+<h3>A1 · Google Chrome</h3>
+<ol class="steps">
+  <li>If you don't have it: <code>google.com/chrome</code> → <b>Download</b> → open the file → drag <b>Google Chrome</b> into <b>Applications</b>.</li>
+  <li>Installing firmware on the boards (part C) only works in <b>Chrome</b> (or Edge), not Safari or Firefox. You don't have to make Chrome your default browser: when the app opens in Safari, copy its address (<code>http://127.0.0.1:8770</code>) into Chrome for part C.</li>
+</ol>
+
+<h3>A2 · Weathering itself</h3>
+<ol class="steps">
+  <li>Open <code>github.com/mCrozzoli/weathering</code> in a browser.</li>
+  <li>Green button <b>Code</b> → <b>Download ZIP</b>. Double-click the downloaded <code>weathering-main.zip</code>: it becomes a folder <code>weathering-main</code>.</li>
+  <li>Move that folder somewhere it can stay, e.g. <b>Documents</b>. Don't rename the files inside it.</li>
+</ol>
+<p class="see">a folder with <code>Weathering.command</code>, <code>Weathering demo.command</code>, <code>Weathering live sound.command</code>, and folders <code>app</code>, <code>docs</code>, <code>firmware</code>, <code>sc</code>…</p>
+
+<h3>A3 · Python (to run the app)</h3>
+<ol class="steps">
+  <li>Open <b>Terminal</b> (Applications → Utilities → Terminal, or ⌘-Space and type <i>Terminal</i>).</li>
+  <li>Type <code>python3 --version</code> and press Return.</li>
+  <li>If it prints <code>Python 3.9</code> or higher: done. If a window asks to install the <b>command line developer tools</b>: click <b>Install</b>, agree, wait (5–15 min), then type the command again. If it says <i>command not found</i>: install Python from <code>python.org/downloads</code> (the big yellow button), then try again.</li>
+</ol>
+
+<h3>A4 · SuperCollider (the sound)</h3>
+<ol class="steps">
+  <li><code>supercollider.github.io/downloads</code> → <b>macOS</b> → download the current version (3.13 or newer).</li>
+  <li>Open the downloaded <code>.dmg</code>, drag <b>SuperCollider</b> into <b>Applications</b>.</li>
+  <li>Open it once from Applications (if macOS asks, click <b>Open</b>), let it start, then quit it (⌘Q). From now on Weathering starts it by itself, without its window.</li>
+</ol>
+
+<h3>A5 · CoFlo's complexity measure (recommended, once)</h3>
+<p>CoFlo holds the feedback back when it locks onto one tone. It works best with Chris Kiefer's <b>CccRPC</b> plug-in, which has to be built on each computer. Without it the sound still works with a simpler measure (and says so).</p>
+<ol class="steps">
+  <li>Install Homebrew: copy the one-line command from <code>brew.sh</code> into Terminal, press Return, type your Mac password when asked (you won't see it as you type), follow what it prints at the end (it may ask you to paste two more lines).</li>
+  <li>In Terminal: <code>brew install cmake</code></li>
+  <li>In Terminal, type <code>cd </code> (with a space), drag the <code>weathering-main</code> folder onto the Terminal window, press Return. Then:<pre>bash tools/build_cccrpc.sh</pre>It downloads and builds for a few minutes. If it says it is installing the command line tools first, let it finish and run the same line again.</li>
+</ol>
+<p class="see"><code>Installed to: …/SuperCollider/Extensions/Ccc</code> at the end.</p>
+
+<!-- ================================================================== B -->
+<h2>B · Try it without hardware</h2>
+<ol class="steps">
+  <li>In the <code>weathering-main</code> folder, double-click <b>Weathering demo.command</b>.</li>
+  <li>The first time macOS may say it <i>cannot be opened</i> or <i>cannot verify the developer</i>. Click <b>Done</b>/<b>OK</b>, then <b>right-click</b> (or Control-click) the file → <b>Open</b> → <b>Open</b>. (On macOS 15: System Settings → Privacy &amp; Security → scroll down → <b>Open Anyway</b>.) You only do this once per file.</li>
+  <li>A Terminal window opens and says <i>one-time setup…</i> (about 15 s, the first time only), then the app opens in your browser.</li>
+</ol>
+<p class="see">the Live view with “Demo” in the top bar. Twelve hours pass every minute; after a minute or two the rings fill, the readings change and the twin starts to open. You may hear the four virtual panels now and then (an imaginary visitor knocks); <b>Touch</b> knocks too.</p>
+<p>Try: click another reading (SOM, PCA, k-means, IForest) to let it move the twin; slide <b>history</b> back; <b>Teach…</b> to shape your own mapping (MLP). To stop: click <b>Quit</b> at the top right, then close the Terminal window.</p>
+<div class="note">The demo keeps its pretend show separate from the real one, so nothing you do here ends up in the exhibition.</div>
+
+<!-- ================================================================== C -->
+<h2>C · Install the three boards</h2>
+<p>Each ESP32 gets its part once: <b>Sensor box</b>, <b>Hub</b>, <b>Sculpture</b>. Label them (tape and a pen) as you go.</p>
+<ol class="steps">
+  <li>Double-click <b>Weathering.command</b> (the real one, not the demo). If the page opens in Safari, copy its address into <b>Chrome</b>.</li>
+  <li>Click <b>Boards</b> at the top.</li>
+  <li>Plug <b>one</b> ESP32 into the Mac with a USB <b>data</b> cable.</li>
+  <li><b>Connect a board…</b> → Chrome lists the ports → pick the ESP32 (it is called something like <code>cu.usbserial-…</code>, <code>cu.SLAB_USBtoUART</code> or <code>cu.wchusbserial…</code>, not Bluetooth) → <b>Connect</b>.</li>
+  <li>The panel says <i>No Weathering firmware on this board yet</i> (or which part it has). Click <b>Install Sensor box</b> (or Hub, or Sculpture). A bar fills in about a minute.</li>
+  <li>Unplug it, label it, and do the next board.</li>
+</ol>
+<figure><img src="img/boards_new.png" alt="The Boards panel for a board without firmware: three install buttons, Sensor box, Hub, Sculpture." style="max-width:75%"></figure>
+<p class="see">after installing: <i>Sensor box · firmware 0.2.0 · …</i> (or Hub, Sculpture).</p>
+<div class="warn"><b>No port in Chrome's list?</b> Try another cable (many USB cables only charge). <b>“No answer from the board”?</b> Hold the board's <b>BOOT</b> button, click Install again, let go when the bar starts. <b>“The app is holding the hub's USB port”?</b> Top bar <b>Connect → Disconnect the hub</b> first.</div>
+
+<!-- ================================================================== D -->
+<h2>D · Wire the sensor box</h2>
+<table>
+  <tr><th>SCD30</th><th>ESP32 (sensor box)</th><th></th></tr>
+  <tr><td>VIN</td><td>3V3</td><td></td></tr>
+  <tr><td>GND</td><td>GND</td><td></td></tr>
+  <tr><td>SDA (RX/SDA)</td><td><b>GPIO 21</b></td><td></td></tr>
+  <tr><td>SCL (TX/SCL)</td><td><b>GPIO 22</b></td><td></td></tr>
+  <tr><td>SEL</td><td>open</td><td>(= I²C)</td></tr>
+</table>
+<ol class="steps">
+  <li>Wire it with the board unplugged, then plug it in by USB: in <b>Boards → Connect a board…</b> choose it.</li>
+  <li>The panel says <i>sensors found: scd30</i>. Click <b>Read now</b>.</li>
+</ol>
+<p class="see">CO₂ around 400–1000, a plausible temperature and humidity, with no “(sim)” after them. “(sim)” means that value is invented because the sensor wasn't found: check the four wires.</p>
+<p>Place it in the room away from the ESP32 and its charger (they warm it), out of sun and breath. Power it with any USB phone charger.</p>
+<p><b>More data later:</b> a BH1750 light sensor and a microphone module can join the same box; tick <b>light</b> / <b>sound level</b> under <i>part of the show</i> and <b>Save to board</b>. Until then the show uses CO₂, temperature and humidity only.</p>
+
+<!-- ================================================================== E -->
+<h2>E · Wire and calibrate the sculpture</h2>
+<h3>E1 · Wiring (as on your TTGO tests)</h3>
+<table>
+  <tr><th>From</th><th>To</th><th></th></tr>
+  <tr><td>ESP32 <b>GPIO 32</b> (TX)</td><td>1 kΩ → Dynamixel <b>DATA</b></td><td></td></tr>
+  <tr><td>ESP32 <b>GPIO 33</b> (RX)</td><td>Dynamixel <b>DATA</b>, directly</td><td></td></tr>
+  <tr><td>ESP32 <b>GND</b></td><td>Dynamixel <b>GND</b> and the 12 V supply's GND</td><td><b>grounds joined</b></td></tr>
+  <tr><td>12 V +</td><td>Dynamixel <b>VDD</b></td><td>never into the ESP32</td></tr>
+</table>
+<p>The four XL430 are daisy-chained. Motor 1 winds the string of triangle 1 (red in the twin), motor 2 orange, 3 green, 4 blue.</p>
+
+<h3>E2 · Calibration (once, and again only if strings or spools change)</h3>
+<p>The sculpture's ESP32 on the Mac by USB, the motors on 12 V. <b>Boards → Connect a board…</b> → the sculpture's port.</p>
+<figure><img src="img/boards_body.png" alt="The Sculpture motors card: three steps, a row per motor with id, wind buttons, closed travel, Set closed and Test."></figure>
+<ol class="steps">
+  <li><b>Find motors.</b> Four should answer: ids 1, 2, 3, 4.<br>
+    <i>Fewer?</i> New XL430s all come as <b>ID 1</b>, and two motors with the same ID can't both answer. Unplug the chain, plug in <b>one</b> new motor, set <code>1 → 2</code>, <b>Change id</b>; next motor alone <code>1 → 3</code>; next <code>1 → 4</code>. Then chain all four again and <b>Find motors</b>.</li>
+  <li><b>Open and slack.</b> Let the structure open fully by itself, every string just slack (no tension, no loops). Click <b>Set slack here</b> and confirm. This is pull 0.</li>
+  <li><b>Closed, one string at a time.</b> For motor 1: click <b>▸</b> a few times. If the string winds <i>in</i>, keep going (<b>▸▸</b> = ⅛ turn) until its triangle is fully drawn in; if it lets <i>out</i>, use <b>◂</b> instead — either way is fine. Then <b>Set closed</b>. The row shows the travel, e.g. <i>1.61 turns</i>. Do the same for motors 2, 3, 4.</li>
+  <li><b>Test</b> each motor: it winds in a little and back.</li>
+  <li>Choose <b>speed</b> (normal) and <b>Save to board</b>.</li>
+</ol>
+<p class="see">motors answering: <b>1, 2, 3, 4</b> · slack set · closed set for 4 of 4.</p>
+<div class="warn"><b>Safety, built in.</b> The sculpture never assumes that where it is at power-up is slack. It remembers its slack point, its travel and its last position, and checks them every time it starts. If they don't match (a spool was turned by hand, a string changed), it holds no torque and ignores the data until you do <b>Set slack here</b> again with the structure open. The app then shows <i>needs calibrating</i>. It can never wind past the closed point you set.</div>
+
+<!-- ================================================================== F -->
+<h2>F · Sound: piezos and exciters</h2>
+<ol class="steps">
+  <li>Piezo of panel <i>k</i> → input <i>k</i> of the 4-in/4-out audio interface; output <i>k</i> → amplifier → exciter of panel <i>k</i> (panel = the triangle string <i>k</i> pulls).</li>
+  <li><b>System Settings → Sound</b>: choose the interface as <b>Output</b> and as <b>Input</b>. Both at the same sample rate (Audio MIDI Setup → the interface → 48 000 Hz for in and out).</li>
+  <li>Amplifier volume <b>low</b> to start.</li>
+  <li>Double-click <b>Weathering live sound.command</b> (instead of Weathering.command). Click <b>Touch</b> or knock on a panel.</li>
+</ol>
+<p class="see">silence until the knock; then the panel rings for a few seconds and dies away. The top bar says <i>sound on</i>. Early in the show it barely answers (the sculpture is closed); it rings longer as the show opens.</p>
+<div class="note">Safety: an automatic gain and a limiter are always on. If it ever howls, close the Terminal window (or turn the amp down). Calibrating on the real panels: see README → Sound (<code>WX_DEBUG=1</code> writes meters to <code>~/.weathering/sound.log</code>).</div>
+
+<!-- ================================================================== G -->
+<h2>G · Start the show</h2>
+<ol class="steps">
+  <li>Power the <b>sensor box</b> (USB charger) and the <b>sculpture</b> (ESP32 by USB charger, motors on 12 V).</li>
+  <li>Plug the <b>hub</b> into the Mac.</li>
+  <li>Double-click <b>Weathering live sound.command</b> (or <b>Weathering.command</b> without the panels' sound).</li>
+  <li>Top bar: three green dots — <b>Hub connected</b>, <b>sensor</b>, <b>sculpture</b>. If the hub isn't found: <b>Connect</b> → its port. The sensor dot turns green with its first reading (within 5 minutes; a few seconds after it powers up).</li>
+  <li><b>⚙ → Start a new show…</b> → a name (e.g. <i>Athens 2026</i>). Everything from setting up stays in the old show; the new one starts closed: the sculpture winds all strings in now.</li>
+  <li>In ⚙ check: <b>Runs at</b> <code>06:00, 18:00</code> · <b>Show length</b> (days: it is fully open around the last day) · <b>Glide</b> (how slowly it moves) · <b>Moves</b>: <i>at the runs</i> (default) or <i>live</i> (it also follows every reading in between). <b>Save</b>.</li>
+  <li>Optional check: <b>Run now</b> reads the data at once (on a new show: still closed, there isn't enough data yet).</li>
+</ol>
+<figure><img src="img/settings.png" alt="The settings dialog: run times, show length, glide, moves, export, start a new show." style="max-width:62%"></figure>
+<p>Closing the page changes nothing: readings keep being saved. To look again, open <code>http://127.0.0.1:8770</code>. <b>Quit</b> (top right) stops everything.</p>
+
+<!-- ================================================================== H -->
+<h2>H · Leave it running for weeks</h2>
+<ul class="check">
+  <li>System Settings → <b>Energy</b> (or Battery → Options): prevent sleep when the display is off; <b>Start up automatically after a power failure</b>.</li>
+  <li>System Settings → General → <b>Login Items</b> → <b>+</b> → <code>Weathering live sound.command</code>, so it starts again after a power cut.</li>
+  <li>Turn off automatic macOS updates for the show's duration.</li>
+  <li>The show lives in <code>~/.weathering/shows/&lt;name&gt;/</code>: <code>readings.csv</code>, <code>runs.jsonl</code>, <code>show.json</code>. Copy that folder to keep it; ⚙ → <b>Export data</b> does the same from the page.</li>
+</ul>
+
+<!-- ================================================================== I -->
+<h2>I · If something goes wrong</h2>
+<table>
+  <tr><th>What you see</th><th>What to do</th></tr>
+  <tr><td>Page closed, browser crashed</td><td>Nothing lost. Open <code>http://127.0.0.1:8770</code> again.</td></tr>
+  <tr><td>Mac restarted or crashed</td><td>Double-click the command again (or it starts by itself, see H). The show continues; a missed run happens at once; the sensor box sends the readings it kept (about three days' worth).</td></tr>
+  <tr><td>Sensor dot grey</td><td>Is the sensor box powered? Is it in the same <b>group</b> as the hub (Boards)? Too far from the hub (walls)? Put the hub on a USB extension nearer.</td></tr>
+  <tr><td>Sculpture dot amber, <i>needs calibrating</i></td><td>Boards → Sculpture motors → <b>Set slack here</b> with the structure open (E2). The closed points are kept.</td></tr>
+  <tr><td>Sculpture dot amber, a motor silent</td><td>12 V on? The chain's cables seated? Boards → <b>Find motors</b>.</td></tr>
+  <tr><td>Values marked <i>sim</i></td><td>A sensor isn't found and is being simulated: check its wires (D).</td></tr>
+  <tr><td><i>no SuperCollider: silent</i></td><td>Install SuperCollider (A4) and start again.</td></tr>
+  <tr><td>Sound too loud / howling</td><td>Amplifier down; close the Terminal window to stop all sound at once.</td></tr>
+  <tr><td>“cannot be opened” for a .command</td><td>Right-click → Open → Open (B2).</td></tr>
+</table>
+<p style="margin-top:14px" class="sub">More detail: <code>README.md</code> (how it works), <code>docs/HARDWARE.md</code> (parts, wiring, USB commands), <code>docs/PROTOCOL.md</code> (the boards' language). Questions: Miguel.</p>
+</body>
+</html>

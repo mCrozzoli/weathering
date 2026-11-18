@@ -60,7 +60,7 @@ async function use(backend) {
   S.view = null;
   S.nodes = {};
   S.body = null;
-  S.sentPose = S.runs.at(-1)?.sent || null;
+  S.sentPose = S.runs.at(-1)?.sent || CLOSED();   // a new show: closed from the start
   recomputeTaught();
   closeTeach(false);
   S.seq = (S.runs.length + 1) * 10;
@@ -444,6 +444,14 @@ function wireUi() {
   $("saveSettings").onclick = saveSettings;
   $("exportBtn").onclick = () => exportFiles(S.meta.name || S.backend.kind, S.readings, S.runs);
   $("resetDemo").onclick = async () => { await S.backend.reset(); $("settingsDlg").close(); await use(new DemoBackend(Number($("speed").value))); toast("Demo restarted: the sculpture is closed again"); };
+  $("newShow").onclick = async () => {
+    const name = prompt("Name of the new show (e.g. the place and year). It starts closed; the current show stays on this computer.");
+    if (!name || !name.trim()) return;
+    await S.backend.openShow(name.trim());
+    $("settingsDlg").close();
+    await use(new LocalBackend());
+    toast(`New show: ${S.meta.name}`);
+  };
   $("quitBtn").onclick = async () => { await S.backend.quit(); document.body.innerHTML = '<p style="padding:40px">Weathering stopped. You can close this tab.</p>'; };
   $("speed").onchange = () => { S.backend.setSpeed?.(Number($("speed").value)); renderStatus(); };
   $("skipDay").onclick = () => S.backend.skip?.(86400);
@@ -526,6 +534,7 @@ function openSettings() {
   $("glide").value = S.meta.glide_s ?? 60;
   $("moves").value = S.meta.moves === "live" ? "live" : "runs";
   $("resetDemo").hidden = S.backend.kind !== "demo";
+  $("newShow").hidden = S.backend.kind !== "local";
   $("settingsDlg").showModal();
 }
 
