@@ -37,7 +37,7 @@ from . import protocol, store
 from .serial_link import SerialLink, ports
 
 STATIC = Path(__file__).parent / "static"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 class App:

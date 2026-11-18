@@ -179,7 +179,7 @@
   <li>Amplifier volume <b>low</b> to start.</li>
   <li>Double-click <b>Weathering live sound.command</b> (instead of Weathering.command). Click <b>Touch</b> or knock on a panel.</li>
 </ol>
-<p class="see">silence until the knock; then the panel rings for a few seconds and dies away. The top bar says <i>sound on</i>. Early in the show it barely answers (the sculpture is closed); it rings longer as the show opens.</p>
+<p class="see">silence until the knock; then the panel rings for a few seconds and dies away. The top bar says <i>sound on</i> (if it says <i>different sample rates</i>, go back to step 2). Early in the show it barely answers (the sculpture is closed); it rings longer as the show opens.</p>
 <div class="note">Safety: an automatic gain and a limiter are always on. If it ever howls, close the Terminal window (or turn the amp down). Calibrating on the real panels: see README → Sound (<code>WX_DEBUG=1</code> writes meters to <code>~/.weathering/sound.log</code>).</div>
 
 <!-- ================================================================== G -->
@@ -216,6 +216,8 @@
   <tr><td>Sculpture dot amber, a motor silent</td><td>12 V on? The chain's cables seated? Boards → <b>Find motors</b>.</td></tr>
   <tr><td>Values marked <i>sim</i></td><td>A sensor isn't found and is being simulated: check its wires (D).</td></tr>
   <tr><td><i>no SuperCollider: silent</i></td><td>Install SuperCollider (A4) and start again.</td></tr>
+  <tr><td><i>no sound: sound card in and out at different sample rates</i></td><td>Audio MIDI Setup (Applications → Utilities) → the sound card → set <b>Input</b> and <b>Output</b> to the same rate (48 000 Hz) → Quit and start again (F2). Also happens if Input is the Mac's microphone and Output the sound card: choose the sound card for both.</td></tr>
+  <tr><td><i>sound starting…</i> for more than a minute</td><td>Quit, start again. Still? Send Miguel <code>~/.weathering/sound.log</code>.</td></tr>
   <tr><td>Sound too loud / howling</td><td>Amplifier down; close the Terminal window to stop all sound at once.</td></tr>
   <tr><td>“cannot be opened” for a .command</td><td>Right-click → Open → Open (B2).</td></tr>
 </table>

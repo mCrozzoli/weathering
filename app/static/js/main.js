@@ -68,6 +68,9 @@ async function use(backend) {
   $("demoBanner").hidden = backend.kind !== "demo";
   $("demoCtl").hidden = backend.kind !== "demo";
   await backend.start(onEvent);
+  if (backend.kind === "local") {             // the sound engine may have said "ready" before this page opened
+    try { S.sound = (await backend.state()).sound; } catch (_) {}
+  }
   renderAll();
   maybeRun();
 }
@@ -314,7 +317,8 @@ function renderStatus() {
     return `<span title="${role === "sensor" ? "sensor box" : lame ? why : "sculpture"}"><span class="dot ${lame ? "warn" : ok ? "ok" : ""}"></span>${role === "sensor" ? "sensor" : "sculpture"}</span>`;
   }).join(" ");
   $("connectBtn").textContent = S.connected && b?.kind !== "demo" ? "Connected" : "Connect";
-  if (b?.kind === "local" && S.sound) $("soundState").textContent = { ready: "sound on", starting: "sound starting…", missing: "no SuperCollider: silent", off: "sound off", stopped: "sound stopped" }[S.sound] || "";
+  if (b?.kind === "local" && S.sound) $("soundState").textContent = { ready: "sound on", starting: "sound starting…", missing: "no SuperCollider: silent", off: "sound off", stopped: "sound stopped",
+    rates: "no sound: sound card in and out at different sample rates (Audio MIDI Setup)", failed: "no sound: the sound card didn't start (see sound.log)" }[S.sound] || "";
 }
 
 const fmtDate = (u) => new Date(u * 1000).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });

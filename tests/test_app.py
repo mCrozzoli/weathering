@@ -203,3 +203,26 @@ def test_runs_and_pose_reach_the_sound(tmp_path):
         assert App("snd", tmp_path).context["kind"] == 2
     finally:
         httpd.shutdown()
+
+
+def test_the_real_launcher_never_opens_the_demo(tmp_path, monkeypatch):
+    """Florian runs the demo first; the installation must not land in it."""
+    from app import __main__ as main
+    monkeypatch.setattr(store, "ROOT", tmp_path)
+    store.Show("demo", tmp_path).add_reading(protocol.parse_reading("R 100 1 co2=500"))
+    picked = {}
+    monkeypatch.setattr(main, "App", lambda name: picked.setdefault("name", name) and (_ for _ in ()).throw(SystemExit))
+    with pytest.raises(SystemExit):
+        main.main(["--no-browser", "--no-sound"])
+    assert picked["name"] == "show"
+
+
+def test_a_restart_reopens_the_show_last_used(tmp_path):
+    """A new show (no readings yet) must win over the old one after a power cut."""
+    import os
+    old = store.Show("aaa old", tmp_path)
+    old.add_reading(protocol.parse_reading("R 100 1 co2=500"))
+    for f in (old.readings_path, old.meta_path):
+        os.utime(f, (1_000_000, 1_000_000))       # used long ago
+    store.Show("zurich 2027", tmp_path)                 # just created
+    assert store.list_shows(tmp_path)[0]["name"] == "zurich 2027"

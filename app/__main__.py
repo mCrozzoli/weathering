@@ -35,7 +35,8 @@ def main(argv=None) -> int:
     ap.add_argument("--http", type=int, default=8770)
     a = ap.parse_args(argv)
 
-    shows = store.list_shows()
+    # the last real show (the demo's pretend show is never picked by itself)
+    shows = [s for s in store.list_shows() if s["name"] != "demo"]
     name = a.show or (shows[0]["name"] if shows else "show")
     if a.fake and not a.show:
         name = "demo"

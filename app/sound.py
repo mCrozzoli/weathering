@@ -77,6 +77,12 @@ class Sound:
                     self.osc = OscOut(port=self.port)
                     self.state = "ready"
                     self.ready.set()
+                # the sound card won't start: say why, instead of "starting…" forever
+                if self.state == "starting":
+                    if "Mismatched sample rates" in line:
+                        self.state = "rates"
+                    elif "server failed to start" in line or "Couldn't set hardware" in line or "could not initialize audio" in line:
+                        self.state = "failed"
                 if line.startswith("WX "):
                     self.on_line(line.strip())
         if self.state != "stopped":

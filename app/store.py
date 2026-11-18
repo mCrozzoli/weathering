@@ -123,14 +123,16 @@ class Show:
         return out
 
 
-def list_shows(root: Path = ROOT) -> list[dict]:
-    root = Path(root)
+def list_shows(root: Path | None = None) -> list[dict]:
+    """Every show, the most recently active first (a reading or a setting)."""
+    root = Path(root or ROOT)
     if not root.exists():
         return []
     out = []
     for d in sorted(root.iterdir()):
         if (d / "show.json").exists():
             n = max(0, sum(1 for _ in open(d / "readings.csv")) - 1) if (d / "readings.csv").exists() else 0
-            out.append({"name": d.name, "readings": n, "modified": int((d / "readings.csv").stat().st_mtime) if n else 0})
+            times = [(d / f).stat().st_mtime for f in ("readings.csv", "show.json") if (d / f).exists()]
+            out.append({"name": d.name, "readings": n, "modified": int(max(times, default=0))})
     out.sort(key=lambda s: -s["modified"])
     return out
