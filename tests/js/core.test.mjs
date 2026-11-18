@@ -101,7 +101,8 @@ test("a run gives four values per algorithm (one per string), all in [0,1]", () 
     for (const x of run.poses[a]) assert.ok(x >= 0 && x <= 1, `${a} ${x}`);
   }
   assert.equal(run.sent.length, 4);
-  assert.deepEqual(run.sent, toPulls(run.poses[run.driving], run.openness));
+  // pulls = 1 − openness × shape (openness is stored rounded: allow its rounding)
+  toPulls(run.poses[run.driving], run.openness).forEach((p, k) => assert.ok(Math.abs(p - run.sent[k]) <= 0.002, `string ${k + 1}`));
   assert.ok(run.openness > 0 && run.openness < 1);
   // the shares of the three kinds of hours add up to 1
   const c = run.poses.clusters;
