@@ -2,14 +2,14 @@
 //  WEATHERING — sound
 //
 //  The sculpture is silent until someone touches it. A knock on a panel
-//  opens a window; inside it that panel's feedback rings — through Florian's
-//  POLYHARPYE resonators, held in check by CoFlo — then dies away.
-//
+//  opens a window; inside it that panel's feedback rings — through a resonator network
+//  building on Alberto DeCampo's Polyharpyie x-strument ((https://2020.xcoax.org/adc/).
+
 //  Four panels (NPTX: the four triangles the strings pull), each with a
 //  piezo (in) and an exciter (out), each its own loop:
 //
 //    piezo k (or virtual panel k) ─▶ touch gate ─▶ CoFlo gain
-//      ─▶ Florian's resonators + dry ─▶ frequency shift ─▶ safety ─▶ exciter k
+//      ─▶ resonators + dry ─▶ frequency shift ─▶ safety ─▶ exciter k
 //      ▲                                                                 │
 //      └──────────────── through the panel (and a little through the air) ◀┘
 //
@@ -20,8 +20,7 @@
 //
 //    openness   → how much loop gain there is and how long a touch rings
 //                 (a newly closed sculpture barely answers; it opens up)
-//    kind now   → which of Florian's resonators leads (quiet → rings,
-//                 in between → tabla, busy → comb/sitar) and the band set
+//    kind now   → which resonator leads and the band set
 //    today      → the mix of the three resonators
 //    novelty    → CoFlo threshold and frequency shift: on unusual days the
 //                 feedback is not allowed to settle into one tone
@@ -142,8 +141,8 @@ s.waitForBoot {
         cofloEnv = Amplitude.ar(simple, attack, release) * amount;
         gain     = (1 - cofloEnv).clip(0, 1);
 
-        // Florian's POLYHARPYE resonators (ringPaz, tabloid, sitar), here
-        // fed by the panel's own piezo rather than played by notes
+
+        // fed by the panel's own piezo mics
         shim  = LFNoise2.kr([0.4, 0.53, 0.67]).range(0.55, 1.0);
         ringz = (Ringz.ar(mic * 0.04, band * [1, 3, 5], [0.9, 0.8, 0.7]) * shim).sum.tanh;
         tabla = (Ringz.ar(mic * 0.02, band * [1, 1.5133, 2.0159, 2.54867, 3.0708],
@@ -249,7 +248,6 @@ s.waitForBoot {
 
     // CoFlo pulling a panel's gain down for a while = that loop locked onto
     // one tone: move its resonators to another band of the current kind
-    // (the behaviour Florian described in his CoFlow experiments).
     ~lowFor = Array.fill(~n, 0);
     ~debug = "WX_DEBUG".getenv == "1";
     OSCdef(\wxMeter, { |msg|
