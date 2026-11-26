@@ -18,12 +18,12 @@ and the body waits for its motors to answer.
 
 | Qty | Part | Notes |
 |---|---|---|
-| 3 | **ESP32 dev board** (ESP32-WROOM-32, "ESP32 DevKit V1", or Florian's TTGO T7) | a plain ESP32 — not S2, S3 or C3. With a USB data cable each |
+| 3 | **ESP32 dev board** (ESP32-WROOM-32, "ESP32 DevKit V1") | a plain ESP32 — not S2, S3 or C3. With a USB data cable each |
 | 1 | **Sensirion SCD30** (CO₂ + temperature + humidity) | I²C 0x61. The sculpture's kit. An **SCD41** (0x62) also works instead |
 | 4 | **Dynamixel XL430-W250-T** | TTL (3-pin), Protocol 2.0. They ship as **ID 1, 57600 baud**: each needs its own ID (Boards does it) |
 | 1 | **12 V supply** for the motors, ≥ 3 A (4 × XL430 at stall ≈ 4 × 1.4 A; they rarely all pull at once) | with a barrel or screw terminal. Never through the ESP32 |
 | 1 | 1 kΩ resistor | between the ESP32's TX and the Dynamixel data line |
-| 4 | spools + string | Florian's grooved spools on the motor shafts |
+| 4 | spools + string on the motor shafts |
 | 4 + 4 | **piezo discs** (one per pulled triangle) and **exciters** (one per triangle) | for the sound |
 | 1 | **audio interface, 4 in / 4 out** (+ a small 4-channel amp for the exciters if the interface can't drive them) | at one sample rate for in and out |
 | – | Dynamixel 3-pin cables (daisy chain), jumper wires, terminal block | |
