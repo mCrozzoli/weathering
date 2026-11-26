@@ -234,8 +234,7 @@ whose time passed while the app was off runs at once.
 
 ## Changes in v0.2 (the NPTX sculpture)
 
-Six hobby servos → four Dynamixel XL430 winding strings (Florian's NPTX
-build); poses are 4 pulls, 1 = closed; calibration by `jog`, `slack`,
+Four Dynamixel XL430 winding strings; poses are 4 pulls, 1 = closed; calibration by `jog`, `slack`,
 `closed` instead of pins and pulse widths; SCD30 support and the
 `channels` key; `WX_MAGIC` 0xA8, firmware 0.2.0. Boards on 0.1 must be
 reflashed (they ignore 0.2 packets and vice versa).
