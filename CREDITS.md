@@ -2,10 +2,10 @@
 
 ## People
 
-- **Florian Goeschke** — sculpture (NPTX), concept, the POLYHARPYE
+- **Florian Goeschke** — sculpture (NPTX), concept, 
   resonators; the jitterbug geometry and uneven-pull solver the twin here
-  uses (his "Possibility Space" page), and the Dynamixel wiring and packet
-  code the sculpture's firmware is built on (his TTGO tests).
+  uses and the Dynamixel wiring and packet
+  code the sculpture's firmware 
 - **Miguel Angel Crozzoli** — data, algorithms, software, firmware design.
 - Built with **Claude** (Anthropic) as a co-designing agent.
 
@@ -13,11 +13,8 @@
 
 ## Ideas and methods
 
-- The jitterbug (vector equilibrium → icosahedron → octahedron):
-  R. Buckminster Fuller, *Synergetics* (1975). NPTX, from *anaptyxe*
-  (unfold), is Florian's four-string version. `app/static/js/twin.js`
-  ports his geometry and position-based solver from three.js to plain
-  canvas.
+- Based on R. Buckminster Fuller's jitterbug transformation (s. *Synergetics*, 1975) the project features a shape-shifting feedback sculpture (NPTX, from *anaptyxe*
+   / unfold). `app/static/js/twin.js` that moves betweenb its icosahedron and octahedron state.
 - Dynamixel Protocol 2.0 (ROBOTIS): packets, CRC-16 (poly 0x8005) and Sync
   Write, hand-written after Florian's sketch; no ROBOTIS library is used.
 - Sensirion SCD30 / SCD41 I²C commands from Sensirion's datasheets, written
@@ -37,8 +34,7 @@
   Overholt, Alice Eldridge, *Shaping the behaviour of feedback instruments
   with complexity-controlled gain dynamics*, NIME 2020. Complexity measured
   with random projection (Chris Kiefer, SMC 2023).
-- The resonators in `sc/weathering_sound.scd` are Florian's POLYHARPYE
-  voices (ringPaz, tabloid, sitar), fed by the panels' own mics.
+- The resonators in `sc/weathering_sound.scd` are based on Alberto DeCampo's POLYHARPYE x-strument (https://2020.xcoax.org/adc/)  
 - The app's shape (browser over Web Serial, firmware installed from the
   page, ESP-NOW boards that find each other) follows Miguel's
   [calum-organ](https://github.com/mCrozzoli/calum-organ).
