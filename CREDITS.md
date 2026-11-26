@@ -2,8 +2,7 @@
 
 ## People
 
-- **Florian Goeschke** — sculpture (NPTX), concept, the POLYHARPYE
-  resonators; the jitterbug geometry and uneven-pull solver the twin here
+- **Florian Goeschke** — sculpture (NPTX), concept, the jitterbug geometry and uneven-pull solver the twin here
   uses (his "Possibility Space" page), and the Dynamixel wiring and packet
   code the sculpture's firmware is built on (his TTGO tests).
 - **Miguel Angel Crozzoli** — data, algorithms, software, firmware design.
@@ -37,8 +36,7 @@
   Overholt, Alice Eldridge, *Shaping the behaviour of feedback instruments
   with complexity-controlled gain dynamics*, NIME 2020. Complexity measured
   with random projection (Chris Kiefer, SMC 2023).
-- The resonators in `sc/weathering_sound.scd` are Florian's POLYHARPYE
-  voices (ringPaz, tabloid, sitar), fed by the panels' own mics.
+- The resonators in `sc/weathering_sound.scd` fed by the panels' own mics.
 - The app's shape (browser over Web Serial, firmware installed from the
   page, ESP-NOW boards that find each other) follows Miguel's
   [calum-organ](https://github.com/mCrozzoli/calum-organ).
