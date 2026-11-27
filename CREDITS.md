@@ -2,9 +2,8 @@
 
 ## People
 
-- **Florian Goeschke** — sculpture (NPTX), concept, the POLYHARPYE
-  resonators; the jitterbug geometry and uneven-pull solver the twin here
-  uses (his "Possibility Space" page), and the Dynamixel wiring and packet
+- **Florian Goeschke** — sculpture (NPTX), concept; the jitterbug
+  geometry and uneven-pull solver the twin here uses (his "Possibility Space" page), and the Dynamixel wiring and packet
   code the sculpture's firmware is built on (his TTGO tests).
 - **Miguel Angel Crozzoli** — data, algorithms, software, firmware design.
 - Built with **Claude** (Anthropic) as a co-designing agent.
@@ -37,8 +36,12 @@
   Overholt, Alice Eldridge, *Shaping the behaviour of feedback instruments
   with complexity-controlled gain dynamics*, NIME 2020. Complexity measured
   with random projection (Chris Kiefer, SMC 2023).
-- The resonators in `sc/weathering_sound.scd` are Florian's POLYHARPYE
-  voices (ringPaz, tabloid, sitar), fed by the panels' own mics.
+- **Polyharpye** — Alberto de Campo, *Polyharpye Reclaimed*, xCoAx 2020
+  (<https://2020.xcoax.org/adc/>): an Xstrument whose resonating processes
+  are informed by piezo pickups on suspended strings. The three resonator
+  voices in `sc/weathering_sound.scd` (ringPaz, tabloid, sitar) are
+  Alberto de Campo's Polyharpye code, here fed by the panels' own piezos
+  instead of played. ☐ licence of this code to confirm with Alberto de Campo.
 - The app's shape (browser over Web Serial, firmware installed from the
   page, ESP-NOW boards that find each other) follows Miguel's
   [calum-organ](https://github.com/mCrozzoli/calum-organ).
@@ -59,10 +62,11 @@ no extra Arduino libraries.
 
 ## Hardware
 
-Sensirion SCD41, ROHM BH1750, MAX4466/MAX9814 microphone modules, ESP32
-(Espressif) — see [docs/HARDWARE.md](docs/HARDWARE.md).
+Sensirion SCD30 (or SCD41), ROBOTIS Dynamixel XL430-W250, ESP32
+(Espressif); optional ROHM BH1750 and MAX4466/MAX9814 microphone modules — see [docs/HARDWARE.md](docs/HARDWARE.md).
 
 ## Licence
 
 ☐ To be decided with Florian. Until then all rights are reserved, except
-the third-party parts above under their own licences.
+the third-party parts above under their own licences (the Polyharpye voices:
+☐ as Alberto de Campo grants).

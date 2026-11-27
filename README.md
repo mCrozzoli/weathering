@@ -83,8 +83,8 @@ sculpture at 12 hours a minute.
 
 The sculpture is **silent until someone touches it**. Each of the four
 pulled triangles is a panel with a piezo and an exciter, its own feedback
-loop. A knock on a panel opens a window in which that panel's feedback rings — through Florian's
-POLYHARPYE resonators, held in check by **CoFlo** (complexity-controlled
+loop. A knock on a panel opens a window in which that panel's feedback rings — through resonators
+from Alberto de Campo's **Polyharpye** (xCoAx 2020), held in check by **CoFlo** (complexity-controlled
 feedback gain: when the loop locks onto one tone, the gain comes down) —
 then dies away. The data never plays notes: each 12-hour run sends a
 *context*, and that shapes how the feedback may behave:
